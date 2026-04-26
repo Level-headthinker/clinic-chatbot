@@ -1,0 +1,14 @@
+# Backend files
+backend/.env
+backend/venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Env files (general safety)
+.env
+
+# Virtual environments
+venv/
+env/

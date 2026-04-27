@@ -21,6 +21,8 @@ class DoctorCreate(BaseModel):
     bio: Optional[str] = None
     fee: Optional[str] = None
     available_slots: Optional[list] = []
+    treatments: Optional[list] = []
+    timings: Optional[list] = []
 
 
 class DoctorUpdate(BaseModel):
@@ -30,6 +32,8 @@ class DoctorUpdate(BaseModel):
     bio: Optional[str] = None
     fee: Optional[str] = None
     available_slots: Optional[list] = None
+    treatments: Optional[list] = None
+    timings: Optional[list] = None
     is_active: Optional[bool] = None
 
 
@@ -46,7 +50,9 @@ def add_doctor(
         qualification=data.qualification,
         bio=data.bio,
         fee=data.fee,
-        available_slots=data.available_slots
+        available_slots=data.available_slots,
+        treatments=data.treatments,
+        timings=data.timings
     )
     db.add(doctor)
     db.commit()
@@ -73,6 +79,8 @@ def list_doctors(
             "qualification": d.qualification,
             "fee": d.fee,
             "available_slots": d.available_slots,
+            "treatments": d.treatments or [],
+            "timings": d.timings or [],
             "is_active": d.is_active
         }
         for d in doctors
@@ -105,6 +113,10 @@ def update_doctor(
         doctor.fee = data.fee
     if data.available_slots is not None:
         doctor.available_slots = data.available_slots
+    if data.treatments is not None:
+        doctor.treatments = data.treatments
+    if data.timings is not None:
+        doctor.timings = data.timings
     if data.is_active is not None:
         doctor.is_active = data.is_active
 

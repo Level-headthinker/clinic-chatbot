@@ -14,6 +14,14 @@ export default function Doctors() {
     qualification: "",
     fee: "",
     bio: "",
+    treatments: "",
+    timings: []
+  });
+
+  const [timingInput, setTimingInput] = useState({
+    day: "Monday",
+    from: "09:00 AM",
+    to: "05:00 PM"
   });
 
   useEffect(() => {
@@ -37,6 +45,10 @@ export default function Doctors() {
     try {
       await api.post("/doctors/", {
         ...form,
+        treatments: form.treatments
+          .split(",")
+          .map(t => t.trim())
+          .filter(t => t),
         available_slots: [],
       });
       setForm({
@@ -61,6 +73,19 @@ export default function Doctors() {
     } catch (err) {
       console.error(err);
     }
+  };
+  const addTiming = () => {
+    setForm({
+      ...form,
+      timings: [...form.timings, { ...timingInput }]
+    });
+  };
+
+  const removeTiming = (index) => {
+    setForm({
+      ...form,
+      timings: form.timings.filter((_, i) => i !== index)
+    });
   };
 
   return (
@@ -127,6 +152,82 @@ export default function Doctors() {
                   setForm({ ...form, bio: e.target.value })
                 }
               />
+              <div style={styles.field}>
+                <label style={styles.label}>
+                  Treatments (comma separated)
+                </label>
+                <input
+                  style={styles.input}
+                  placeholder="Fever, Flu, Blood Pressure, Diabetes"
+                  value={form.treatments}
+                  onChange={(e) =>
+                    setForm({ ...form, treatments: e.target.value })
+                  }
+                />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>Timings</label>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <select
+                    style={styles.input}
+                    value={timingInput.day}
+                    onChange={(e) =>
+                      setTimingInput({ ...timingInput, day: e.target.value })
+                    }
+                  >
+                    {["Monday", "Tuesday", "Wednesday", "Thursday",
+                      "Friday", "Saturday", "Sunday"].map(d => (
+                        <option key={d}>{d}</option>
+                      ))}
+                  </select>
+                  <input
+                    style={{ ...styles.input, width: "100px" }}
+                    placeholder="From"
+                    value={timingInput.from}
+                    onChange={(e) =>
+                      setTimingInput({ ...timingInput, from: e.target.value })
+                    }
+                  />
+                  <input
+                    style={{ ...styles.input, width: "100px" }}
+                    placeholder="To"
+                    value={timingInput.to}
+                    onChange={(e) =>
+                      setTimingInput({ ...timingInput, to: e.target.value })
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={addTiming}
+                    style={styles.submitButton}
+                  >
+                    + Add
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                  {form.timings.map((t, i) => (
+                    <span key={i} style={{
+                      backgroundColor: "#eff6ff",
+                      color: "#2563eb",
+                      padding: "4px 10px",
+                      borderRadius: "20px",
+                      fontSize: "12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px"
+                    }}>
+                      {t.day} {t.from}-{t.to}
+                      <span
+                        onClick={() => removeTiming(i)}
+                        style={{ cursor: "pointer", color: "#dc2626" }}
+                      >
+                        ✕
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
               <div style={styles.formButtons}>
                 <button type="submit" style={styles.submitButton}>
                   Save Doctor
@@ -309,5 +410,15 @@ const styles = {
     padding: "6px 8px",
     borderRadius: "6px",
     cursor: "pointer",
+  },
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  label: {
+    fontSize: "13px",
+    fontWeight: "600",
+    color: "#374151",
   },
 };

@@ -60,6 +60,15 @@ export default function Leads() {
       console.error(err);
     }
   };
+  const openWhatsApp = (phone, name) => {
+  const message = encodeURIComponent(
+    `Assalam o Alaikum ${name} ji, City Clinic ki taraf se message hai. ` +
+    `Aap ne hamare chatbot se appointment ki inquiry ki thi. ` +
+    `Kya aap appointment book karna chahte hain? ` +
+    `Humara number hai, reply karein ya call karein. Shukriya!`
+  );
+  window.open(`https://wa.me/${phone}?text=${message}`, "_blank");
+};
 
   return (
     <div style={styles.layout}>
@@ -154,6 +163,13 @@ export default function Leads() {
                         <option value="converted">Converted</option>
                         <option value="lost">Lost</option>
                       </select>
+                      <button
+                        onClick={() => openWhatsApp(l.phone, l.name)}
+                        style={styles.whatsappButton}
+                        title="Send WhatsApp"
+                      >
+                        💬
+                      </button>
                       <button
                         onClick={() => deleteLead(l.id)}
                         style={styles.deleteButton}
@@ -256,4 +272,14 @@ const styles = {
     cursor: "pointer",
     fontWeight: "700",
   },
+  whatsappButton: {
+  backgroundColor: "#dcfce7",
+  color: "#16a34a",
+  border: "none",
+  padding: "6px 10px",
+  borderRadius: "6px",
+  cursor: "pointer",
+  fontWeight: "700",
+  fontSize: "16px",
+},
 };

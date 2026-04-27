@@ -19,7 +19,7 @@ export default function Dashboard() {
         api.get("/appointments/"),
       ]);
       setStats(statsRes.data);
-      setAppointments(apptRes.data.slice(0, 5));
+      setAppointments(apptRes.data);
     } catch (err) {
       console.error(err);
     } finally {

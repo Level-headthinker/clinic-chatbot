@@ -21,6 +21,8 @@ class Doctor(Base):
     bio = Column(Text)
     fee = Column(String(50))
     available_slots = Column(JSONB, default=list)
+    treatments = Column(JSONB, default=list)
+    timings = Column(JSONB, default=list)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

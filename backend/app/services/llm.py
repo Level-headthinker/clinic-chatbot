@@ -9,25 +9,42 @@ from app.config import settings
 client = Groq(api_key=settings.GROQ_API_KEY)
 
 SYSTEM_PROMPT = """
-You are a helpful clinic assistant chatbot named {bot_name}.
-Your job is to:
-1. Help patients book appointments with doctors
-2. Answer questions about the clinic and services
-3. Collect patient name and phone number naturally in conversation
-4. Detect emergencies and respond urgently
+You are a helpful and friendly clinic assistant chatbot named {bot_name}.
+You work for a clinic in Pakistan and talk to patients directly.
+
+LANGUAGE RULES — VERY IMPORTANT:
+- Look ONLY at the most recent user message to decide language
+- If the latest user message is in English → reply in English
+- If the latest user message is in Roman Urdu → reply in Roman Urdu  
+- If the latest user message is in Urdu script → reply in Urdu script
+- IGNORE your own previous replies when deciding language
+- "hi", "hello", "yes", "no", "ok" are neutral — check the next message
+- If user writes "My name is Rimsha" → this is English → reply in English
+- NEVER reply in Urdu if the user wrote in English
+
+ROMAN URDU STYLE GUIDE:
+- Use: aap, apka, theek hai, zaroor, bilkul, koi baat nahi
+- Use: doctor sahab, appointment, fee, timing
+- Keep sentences short and natural
+- Example good reply: "Bilkul Rimsha ji, Dr. Ahmed Khan se appointment 1000 rupay mein ho jaye gi. Kya main confirm kar dun?"
+- Example bad reply: "Certainly Rimsha, I can book your appointment with Dr. Ahmed Khan for 1000 PKR."
+
+YOUR JOB:
+1. Greet the patient warmly
+2. Collect their name and phone number naturally
+3. Help them book an appointment with the right doctor
+4. Answer questions about clinic timings, fees, doctors
+5. Detect emergencies and respond urgently
 
 STRICT RULES:
-- Always be polite, caring, and professional
+- Never make up doctor names, timings, or fees — only use what is given below
+- Always collect name and phone before confirming any booking
 - Keep responses short — maximum 3 sentences
-- Never make up doctor names or timings — only use what is given to you below
-- Always collect name and phone before booking
-- Speak in the same language the user writes in
-- If user writes in Urdu or Roman Urdu, reply in Roman Urdu
+- Be warm and caring like a real receptionist
 
 EMERGENCY RULE:
-If user mentions chest pain, heart attack, can't breathe, severe bleeding,
-unconscious, stroke — immediately tell them to call 1122 and go to emergency.
-Do NOT book appointment for emergencies.
+If user mentions chest pain, heart attack, severe bleeding, unconscious, stroke,
+cant breathe — immediately say call 1122 and go to emergency. Do NOT book appointment.
 
 CLINIC INFORMATION:
 {clinic_info}
@@ -39,7 +56,6 @@ PATIENT INFO COLLECTED SO FAR:
 - Name: {patient_name}
 - Phone: {patient_phone}
 """
-
 EMERGENCY_KEYWORDS = [
     "chest pain", "heart attack", "cant breathe", "can't breathe",
     "unconscious", "severe bleeding", "stroke", "not breathing",
@@ -54,17 +70,35 @@ def is_emergency(message: str) -> bool:
 
 
 def detect_language(message: str) -> str:
-    urdu_script = set("ابپتثجچحخدذرزژسشصضطظعغفقکگلمنوہھءیے")
-    roman_urdu_words = [
-        "kya", "hai", "mujhe", "chahiye", "doctor", "bukhar",
-        "dard", "bimaar", "appointment", "milna", "takleef"
-    ]
-    if any(char in urdu_script for char in message):
+    # Check for Urdu script characters
+    urdu_chars = set("ابپتثجچحخدذرزژسشصضطظعغفقکگلمنوہھءیے")
+    if any(char in urdu_chars for char in message):
         return "ur"
-    if any(word in message.lower() for word in roman_urdu_words):
-        return "ur-roman"
-    return "en"
 
+    # If message is only numbers or very short — do not change language
+    cleaned = message.strip()
+    if cleaned.isdigit():
+        return "en"
+    if len(cleaned.split()) <= 1 and not any(c.isalpha() for c in cleaned):
+        return "en"
+
+    # Roman Urdu specific words
+    roman_urdu_words = [
+        "kya", "mujhe", "chahiye", "bukhar", "dard",
+        "bimaar", "theek", "bilkul", "zaroor", "apka",
+        "mera", "naam", "hai", "hain", "nahi", "aur",
+        "phir", "lekin", "kyun", "kaise", "kahan",
+        "milna", "takleef", "appointment", "mjhe", "mri"
+    ]
+
+    message_lower = message.lower()
+    words = message_lower.split()
+    urdu_word_count = sum(1 for w in words if w in roman_urdu_words)
+
+    if urdu_word_count >= 2:
+        return "ur-roman"
+
+    return "en"
 
 def extract_intent(message: str) -> str:
     message_lower = message.lower()
@@ -127,10 +161,49 @@ def get_ai_response(
     messages.append({"role": "user", "content": user_message})
 
     response = client.chat.completions.create(
-        model="llama-3.1-70b-versatile",
+        model="llama-3.3-70b-versatile",
         messages=messages,
         max_tokens=300,
         temperature=0.7,
     )
 
     return response.choices[0].message.content
+def extract_patient_info(conversation_history: list) -> dict:
+    if not conversation_history:
+        return {"name": None, "phone": None}
+
+    history_text = "\n".join([
+        f"{msg['role'].upper()}: {msg['content']}"
+        for msg in conversation_history
+    ])
+
+    prompt = f"""
+Extract patient name and phone number from this conversation.
+Return ONLY a JSON object like this: {{"name": "John", "phone": "03001234567"}}
+If not found return null for that field: {{"name": null, "phone": null}}
+Do not return anything else. No explanation. Just JSON.
+
+Conversation:
+{history_text}
+"""
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=50,
+        temperature=0,
+    )
+
+    text = response.choices[0].message.content.strip()
+
+    try:
+        import json
+        # Clean any markdown backticks if present
+        text = text.replace("```json", "").replace("```", "").strip()
+        data = json.loads(text)
+        return {
+            "name": data.get("name"),
+            "phone": str(data.get("phone")) if data.get("phone") else None
+        }
+    except Exception:
+        return {"name": None, "phone": None}

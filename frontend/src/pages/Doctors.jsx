@@ -18,11 +18,12 @@ export default function Doctors() {
     timings: []
   });
 
-  const [timingInput, setTimingInput] = useState({
+const [timingInput, setTimingInput] = useState({
     day: "Monday",
     from: "09:00 AM",
     to: "05:00 PM"
-  });
+});
+const [editId, setEditId] = useState(null);
 
   useEffect(() => {
     fetchDoctors();
@@ -39,25 +40,37 @@ export default function Doctors() {
     }
   };
 
+  const resetForm = () => {
+    setForm({
+      name: "",
+      specialty: "",
+      qualification: "",
+      fee: "",
+      bio: "",
+      treatments: "",
+      timings: []
+    });
+    setTimingInput({ day: "Monday", from: "09:00 AM", to: "05:00 PM" });
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
     setError("");
     try {
       await api.post("/doctors/", {
-        ...form,
+        name: form.name,
+        specialty: form.specialty,
+        qualification: form.qualification,
+        fee: form.fee,
+        bio: form.bio,
         treatments: form.treatments
           .split(",")
           .map(t => t.trim())
           .filter(t => t),
+        timings: form.timings,
         available_slots: [],
       });
-      setForm({
-        name: "",
-        specialty: "",
-        qualification: "",
-        fee: "",
-        bio: "",
-      });
+      resetForm();
       setShowForm(false);
       fetchDoctors();
     } catch (err) {
@@ -74,6 +87,7 @@ export default function Doctors() {
       console.error(err);
     }
   };
+
   const addTiming = () => {
     setForm({
       ...form,
@@ -87,6 +101,45 @@ export default function Doctors() {
       timings: form.timings.filter((_, i) => i !== index)
     });
   };
+  const handleEdit = (doctor) => {
+    setEditId(doctor.id);
+    setForm({
+        name: doctor.name,
+        specialty: doctor.specialty,
+        qualification: doctor.qualification || "",
+        fee: doctor.fee || "",
+        bio: doctor.bio || "",
+        treatments: doctor.treatments ? doctor.treatments.join(", ") : "",
+        timings: doctor.timings || []
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+const handleUpdate = async (e) => {
+    e.preventDefault();
+    setError("");
+    try {
+        await api.put(`/doctors/${editId}`, {
+            name: form.name,
+            specialty: form.specialty,
+            qualification: form.qualification,
+            fee: form.fee,
+            bio: form.bio,
+            treatments: form.treatments
+                .split(",")
+                .map(t => t.trim())
+                .filter(t => t),
+            timings: form.timings,
+        });
+        resetForm();
+        setEditId(null);
+        setShowForm(false);
+        fetchDoctors();
+    } catch (err) {
+        setError("Failed to update doctor");
+    }
+};
 
   return (
     <div style={styles.layout}>
@@ -105,53 +158,46 @@ export default function Doctors() {
 
         {showForm && (
           <div style={styles.formCard}>
-            <h3 style={styles.formTitle}>Add New Doctor</h3>
-            {error && <p style={styles.error}>{error}</p>}
-            <form onSubmit={handleAdd} style={styles.form}>
+            <h3 style={styles.formTitle}>
+    {editId ? "Edit Doctor" : "Add New Doctor"}
+</h3>{error && <p style={styles.error}>{error}</p>}
+            <form onSubmit={editId ? handleUpdate : handleAdd} style={styles.form}>
               <div style={styles.formGrid}>
                 <input
                   style={styles.input}
                   placeholder="Full Name"
                   value={form.name}
-                  onChange={(e) =>
-                    setForm({ ...form, name: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
                   required
                 />
                 <input
                   style={styles.input}
                   placeholder="Specialty (e.g. Cardiologist)"
                   value={form.specialty}
-                  onChange={(e) =>
-                    setForm({ ...form, specialty: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, specialty: e.target.value })}
                   required
                 />
                 <input
                   style={styles.input}
                   placeholder="Qualification (e.g. MBBS, FCPS)"
                   value={form.qualification}
-                  onChange={(e) =>
-                    setForm({ ...form, qualification: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, qualification: e.target.value })}
                 />
                 <input
                   style={styles.input}
                   placeholder="Fee (e.g. 1500 PKR)"
                   value={form.fee}
-                  onChange={(e) =>
-                    setForm({ ...form, fee: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, fee: e.target.value })}
                 />
               </div>
+
               <textarea
                 style={styles.textarea}
                 placeholder="Short bio (optional)"
                 value={form.bio}
-                onChange={(e) =>
-                  setForm({ ...form, bio: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, bio: e.target.value })}
               />
+
               <div style={styles.field}>
                 <label style={styles.label}>
                   Treatments (comma separated)
@@ -160,81 +206,69 @@ export default function Doctors() {
                   style={styles.input}
                   placeholder="Fever, Flu, Blood Pressure, Diabetes"
                   value={form.treatments}
-                  onChange={(e) =>
-                    setForm({ ...form, treatments: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, treatments: e.target.value })}
                 />
               </div>
 
               <div style={styles.field}>
-                <label style={styles.label}>Timings</label>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <label style={styles.label}>Clinic Timings</label>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                   <select
-                    style={styles.input}
+                    style={{ ...styles.input, width: "130px" }}
                     value={timingInput.day}
-                    onChange={(e) =>
-                      setTimingInput({ ...timingInput, day: e.target.value })
-                    }
+                    onChange={(e) => setTimingInput({ ...timingInput, day: e.target.value })}
                   >
-                    {["Monday", "Tuesday", "Wednesday", "Thursday",
-                      "Friday", "Saturday", "Sunday"].map(d => (
-                        <option key={d}>{d}</option>
-                      ))}
+                    {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(d => (
+                      <option key={d}>{d}</option>
+                    ))}
                   </select>
                   <input
-                    style={{ ...styles.input, width: "100px" }}
-                    placeholder="From"
+                    style={{ ...styles.input, width: "110px" }}
+                    placeholder="From e.g. 9:00 AM"
                     value={timingInput.from}
-                    onChange={(e) =>
-                      setTimingInput({ ...timingInput, from: e.target.value })
-                    }
+                    onChange={(e) => setTimingInput({ ...timingInput, from: e.target.value })}
                   />
                   <input
-                    style={{ ...styles.input, width: "100px" }}
-                    placeholder="To"
+                    style={{ ...styles.input, width: "110px" }}
+                    placeholder="To e.g. 5:00 PM"
                     value={timingInput.to}
-                    onChange={(e) =>
-                      setTimingInput({ ...timingInput, to: e.target.value })
-                    }
+                    onChange={(e) => setTimingInput({ ...timingInput, to: e.target.value })}
                   />
                   <button
                     type="button"
                     onClick={addTiming}
-                    style={styles.submitButton}
+                    style={styles.addTimingButton}
                   >
-                    + Add
+                    + Add Day
                   </button>
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
                   {form.timings.map((t, i) => (
-                    <span key={i} style={{
-                      backgroundColor: "#eff6ff",
-                      color: "#2563eb",
-                      padding: "4px 10px",
-                      borderRadius: "20px",
-                      fontSize: "12px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px"
-                    }}>
-                      {t.day} {t.from}-{t.to}
+                    <span key={i} style={styles.timingTag}>
+                      {t.day} {t.from} - {t.to}
                       <span
                         onClick={() => removeTiming(i)}
-                        style={{ cursor: "pointer", color: "#dc2626" }}
+                        style={{ cursor: "pointer", color: "#dc2626", marginLeft: "4px" }}
                       >
                         ✕
                       </span>
                     </span>
                   ))}
+                  {form.timings.length === 0 && (
+                    <p style={{ fontSize: "12px", color: "#9ca3af" }}>
+                      No timings added yet
+                    </p>
+                  )}
                 </div>
               </div>
+
               <div style={styles.formButtons}>
                 <button type="submit" style={styles.submitButton}>
                   Save Doctor
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={() => { resetForm(); setShowForm(false); }}
                   style={styles.cancelButton}
                 >
                   Cancel
@@ -255,43 +289,63 @@ export default function Doctors() {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {["Name", "Specialty", "Qualification", "Fee", "Status", "Action"].map(
-                    (h) => (
-                      <th key={h} style={styles.th}>
-                        {h}
-                      </th>
-                    )
-                  )}
+                  {["Name", "Specialty", "Qualification", "Fee", "Treatments", "Timings", "Status", "Action"].map(h => (
+                    <th key={h} style={styles.th}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {doctors.map((d) => (
                   <tr key={d.id} style={styles.tr}>
-                    <td style={styles.td}>Dr. {d.name}</td>
+                    <td style={styles.td}><strong>Dr. {d.name}</strong></td>
                     <td style={styles.td}>{d.specialty}</td>
                     <td style={styles.td}>{d.qualification || "-"}</td>
                     <td style={styles.td}>{d.fee || "-"}</td>
                     <td style={styles.td}>
-                      <span
-                        style={{
-                          ...styles.badge,
-                          backgroundColor: d.is_active
-                            ? "#dcfce7"
-                            : "#fee2e2",
-                          color: d.is_active ? "#16a34a" : "#dc2626",
-                        }}
-                      >
+                      {d.treatments && d.treatments.length > 0 ? (
+                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                          {d.treatments.map((t, i) => (
+                            <span key={i} style={styles.treatmentTag}>{t}</span>
+                          ))}
+                        </div>
+                      ) : "-"}
+                    </td>
+                    <td style={styles.td}>
+                      {d.timings && d.timings.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          {d.timings.map((t, i) => (
+                            <span key={i} style={{ fontSize: "12px", color: "#374151" }}>
+                              {t.day}: {t.from} - {t.to}
+                            </span>
+                          ))}
+                        </div>
+                      ) : "-"}
+                    </td>
+                    <td style={styles.td}>
+                      <span style={{
+                        ...styles.badge,
+                        backgroundColor: d.is_active ? "#dcfce7" : "#fee2e2",
+                        color: d.is_active ? "#16a34a" : "#dc2626",
+                      }}>
                         {d.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
-                    <td style={styles.td}>
-                      <button
-                        onClick={() => handleDelete(d.id)}
-                        style={styles.deleteButton}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
+                  <td style={styles.td}>
+    <div style={{ display: "flex", gap: "8px" }}>
+        <button
+            onClick={() => handleEdit(d)}
+            style={styles.editButton}
+        >
+            ✏️
+        </button>
+        <button
+            onClick={() => handleDelete(d.id)}
+            style={styles.deleteButton}
+        >
+            <Trash2 size={14} />
+        </button>
+    </div>
+</td>
                   </tr>
                 ))}
               </tbody>
@@ -333,14 +387,12 @@ const styles = {
     marginBottom: "24px",
     boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
   },
-  formTitle: { fontSize: "16px", fontWeight: "600", marginBottom: "16px" },
+  formTitle: { fontSize: "16px", fontWeight: "600", marginBottom: "16px", color: "#1e293b" },
   error: { color: "#dc2626", fontSize: "14px", marginBottom: "12px" },
-  form: { display: "flex", flexDirection: "column", gap: "12px" },
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "12px",
-  },
+  form: { display: "flex", flexDirection: "column", gap: "14px" },
+  formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" },
+  field: { display: "flex", flexDirection: "column", gap: "6px" },
+  label: { fontSize: "13px", fontWeight: "600", color: "#374151" },
   input: {
     padding: "10px 12px",
     borderRadius: "8px",
@@ -356,6 +408,35 @@ const styles = {
     outline: "none",
     resize: "vertical",
     minHeight: "80px",
+  },
+  addTimingButton: {
+    backgroundColor: "#eff6ff",
+    color: "#2563eb",
+    border: "1px solid #bfdbfe",
+    padding: "10px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "600",
+    fontSize: "13px",
+    whiteSpace: "nowrap",
+  },
+  timingTag: {
+    backgroundColor: "#eff6ff",
+    color: "#2563eb",
+    padding: "4px 10px",
+    borderRadius: "20px",
+    fontSize: "12px",
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+  },
+  treatmentTag: {
+    backgroundColor: "#f0fdf4",
+    color: "#16a34a",
+    padding: "2px 8px",
+    borderRadius: "12px",
+    fontSize: "11px",
+    fontWeight: "600",
   },
   formButtons: { display: "flex", gap: "12px" },
   submitButton: {
@@ -383,6 +464,7 @@ const styles = {
     borderRadius: "12px",
     padding: "24px",
     boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+    overflowX: "auto",
   },
   empty: { color: "#9ca3af", fontSize: "14px" },
   table: { width: "100%", borderCollapse: "collapse" },
@@ -394,9 +476,10 @@ const styles = {
     color: "#6b7280",
     borderBottom: "1px solid #e5e7eb",
     textTransform: "uppercase",
+    whiteSpace: "nowrap",
   },
   tr: { borderBottom: "1px solid #f3f4f6" },
-  td: { padding: "12px", fontSize: "14px", color: "#374151" },
+  td: { padding: "12px", fontSize: "14px", color: "#374151", verticalAlign: "top" },
   badge: {
     padding: "4px 10px",
     borderRadius: "20px",
@@ -411,14 +494,13 @@ const styles = {
     borderRadius: "6px",
     cursor: "pointer",
   },
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-  },
-  label: {
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#374151",
-  },
+  editButton: {
+    backgroundColor: "#eff6ff",
+    color: "#2563eb",
+    border: "none",
+    padding: "6px 8px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "14px",
+},
 };

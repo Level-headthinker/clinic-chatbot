@@ -111,19 +111,21 @@ def update_doctor(
         doctor.bio = data.bio
     if data.fee is not None:
         doctor.fee = data.fee
-    if data.available_slots is not None:
-        doctor.available_slots = data.available_slots
-    if data.treatments is not None:
-        doctor.treatments = data.treatments
-    if data.timings is not None:
-        doctor.timings = data.timings
     if data.is_active is not None:
         doctor.is_active = data.is_active
 
+    if data.treatments is not None:
+        doctor.treatments = list(data.treatments)
+    if data.timings is not None:
+        doctor.timings = [dict(t) for t in data.timings]
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(doctor, "treatments")
+    flag_modified(doctor, "timings")
+
     db.commit()
+    db.refresh(doctor)
     return {"message": "Doctor updated successfully"}
-
-
 @router.delete("/{doctor_id}")
 def delete_doctor(
     doctor_id: str,

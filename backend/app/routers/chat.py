@@ -12,6 +12,7 @@ from app.models.tenant import Tenant
 from app.models.doctor import Doctor
 from app.models.appointment import Appointment
 from app.services.llm import get_ai_response, detect_language, extract_intent
+from app.services.email import send_booking_notification, send_lead_notification
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -92,6 +93,17 @@ def try_save_appointment(
     )
     db.add(appointment)
     print(f"DEBUG: Done - appointment added")
+      # Send booking notification email
+    send_booking_notification(
+        patient_name=session.patient_name,
+        patient_phone=session.patient_phone,
+        patient_concern=appointment.patient_concern or "General",
+        doctor_name=doctor.name,
+        slot=str(appointment.slot_datetime),
+        clinic_name=db.query(Tenant).filter(
+            Tenant.id == tenant_id
+        ).first().name
+    )
 def try_save_lead(
     session: ChatSession,
     tenant_id,
@@ -116,6 +128,15 @@ def try_save_lead(
             status="new"
         )
     db.add(lead)
+        # Send lead notification email
+    send_lead_notification(
+        patient_name=session.patient_name,
+        patient_phone=session.patient_phone,
+        concern=session.current_intent or "General Inquiry",
+        clinic_name=db.query(Tenant).filter(
+            Tenant.id == tenant_id
+        ).first().name
+    )
 @router.post("/message", response_model=MessageResponse)
 def send_message(data: MessageRequest, db: Session = Depends(get_db)):
 

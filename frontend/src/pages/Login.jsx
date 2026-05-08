@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,6 +66,15 @@ export default function Login() {
           >
             {loading ? "Logging in..." : "Login"}
           </button>
+          <p style={{ textAlign: "center", fontSize: "13px", color: "#64748b", marginTop: "16px" }}>
+  New clinic?{" "}
+  <span
+    onClick={() => navigate("/register")}
+    style={{ color: "#2563eb", fontWeight: "600", cursor: "pointer" }}
+  >
+    Register free for 30 days
+  </span>
+</p>
         </form>
       </div>
     </div>

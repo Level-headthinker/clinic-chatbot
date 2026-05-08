@@ -69,8 +69,9 @@ def list_doctors(
     current_user: User = Depends(get_current_user)
 ):
     doctors = db.query(Doctor).filter(
-        Doctor.tenant_id == current_user.tenant_id
-    ).all()
+    Doctor.tenant_id == current_user.tenant_id,
+    Doctor.is_active == True
+).all()
     return [
         {
             "id": str(d.id),

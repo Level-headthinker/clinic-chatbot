@@ -16,7 +16,6 @@ const navItems = [
   { label: "Leads", icon: Users, path: "/leads" },
   { label: "Chat Preview", icon: MessageSquare, path: "/chat-preview" },
 ];
-
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -51,6 +50,20 @@ export default function Sidebar() {
             </button>
           );
         })}
+        {user?.email === "admin@cityclinic.com" && (
+          <button
+            onClick={() => navigate("/super")}
+            style={{
+              display: "flex", alignItems: "center", gap: "12px",
+              padding: "12px 16px", borderRadius: "8px", border: "none",
+              backgroundColor: "#fef9c3", color: "#ca8a04",
+              fontSize: "14px", fontWeight: "600", cursor: "pointer",
+              textAlign: "left", width: "100%", marginTop: "8px"
+            }}
+          >
+            ⚡ Super Admin
+          </button>
+        )}
       </nav>
 
       <button onClick={handleLogout} style={styles.logout}>

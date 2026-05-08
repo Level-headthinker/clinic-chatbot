@@ -14,6 +14,8 @@ export default function Leads() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   useEffect(() => {
     fetchLeads();
@@ -70,11 +72,40 @@ export default function Leads() {
   window.open(`https://wa.me/${phone}?text=${message}`, "_blank");
 };
 
+
+const handleImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+        const res = await api.post("/leads/import", formData, {
+            headers: { "Content-Type": "multipart/form-data" }
+        });
+        setImportResult(res.data);
+        fetchLeads();
+        fetchStats();
+    } catch (err) {
+        alert("Import failed. Check your CSV format.");
+    } finally {
+        setImporting(false);
+    }
+};
+
+const downloadTemplate = () => {
+    window.open(
+        `${api.defaults.baseURL}/leads/import-template`,
+        "_blank"
+    );
+};
+
   return (
     <div style={styles.layout}>
       <Sidebar />
       <div style={styles.main}>
         <div style={styles.topBar}>
+
           <h1 style={styles.heading}>Leads</h1>
           <select
             style={styles.select}
@@ -88,6 +119,42 @@ export default function Leads() {
             <option value="lost">Lost</option>
           </select>
         </div>
+                <div style={styles.importBox}>
+    <div>
+        <p style={styles.importTitle}>
+            📋 Import Existing Patients
+        </p>
+        <p style={styles.importSub}>
+            Upload your existing patient list as CSV.
+            Download the template first.
+        </p>
+    </div>
+    <div style={{ display: "flex", gap: "10px" }}>
+        <button
+            onClick={downloadTemplate}
+            style={styles.templateBtn}
+        >
+            ⬇ Download Template
+        </button>
+        <label style={styles.importBtn}>
+            {importing ? "Importing..." : "⬆ Upload CSV"}
+            <input
+                type="file"
+                accept=".csv"
+                onChange={handleImport}
+                style={{ display: "none" }}
+            />
+        </label>
+    </div>
+</div>
+
+{importResult && (
+    <div style={styles.importResult}>
+        ✅ Import complete —
+        {importResult.imported} patients added,
+        {importResult.skipped} skipped (duplicates)
+    </div>
+)}
 
         {stats && (
           <div style={styles.statsRow}>
@@ -281,5 +348,56 @@ const styles = {
   cursor: "pointer",
   fontWeight: "700",
   fontSize: "16px",
+},
+importBox: {
+    backgroundColor: "#fff",
+    borderRadius: "12px",
+    padding: "16px 20px",
+    marginBottom: "20px",
+    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "16px",
+},
+importTitle: {
+    fontSize: "14px",
+    fontWeight: "600",
+    color: "#1e293b",
+    margin: "0 0 3px 0",
+},
+importSub: {
+    fontSize: "12px",
+    color: "#64748b",
+    margin: 0,
+},
+templateBtn: {
+    backgroundColor: "#f1f5f9",
+    color: "#374151",
+    border: "none",
+    padding: "9px 16px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "600",
+    fontSize: "13px",
+},
+importBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    padding: "9px 16px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "600",
+    fontSize: "13px",
+},
+importResult: {
+    backgroundColor: "#f0fdf4",
+    border: "1px solid #86efac",
+    borderRadius: "8px",
+    padding: "12px 16px",
+    fontSize: "13px",
+    color: "#16a34a",
+    marginBottom: "16px",
 },
 };

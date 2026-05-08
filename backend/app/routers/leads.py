@@ -1,7 +1,9 @@
 # Manages leads captured by the chatbot.
 # Admin can view all leads, update their status, and add notes for follow-up tracking.
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException,UploadFile, File
+import csv
+import io
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -97,7 +99,72 @@ def delete_lead(
     db.commit()
     return {"message": "Lead removed"}
 
+@router.post("/import")
+async def import_patients(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    content = await file.read()
+    decoded = content.decode("utf-8")
+    reader = csv.DictReader(io.StringIO(decoded))
 
+    imported = 0
+    skipped = 0
+
+    for row in reader:
+        phone = row.get("Phone", "").strip()
+        name = row.get("Name", "").strip()
+
+        if not phone or not name:
+            skipped += 1
+            continue
+
+        # Check if already exists
+        existing = db.query(Lead).filter(
+            Lead.phone == phone,
+            Lead.tenant_id == current_user.tenant_id
+        ).first()
+
+        if existing:
+            skipped += 1
+            continue
+
+        lead = Lead(
+            tenant_id=current_user.tenant_id,
+            name=name,
+            phone=phone,
+            concern=row.get("Condition", "Existing Patient"),
+            source="import",
+            status="contacted",
+            is_existing_patient=True,
+        )
+        db.add(lead)
+        imported += 1
+
+    db.commit()
+    return {
+        "message": "Import complete",
+        "imported": imported,
+        "skipped": skipped
+    }
+
+@router.get("/import-template")
+def download_template(
+    current_user: User = Depends(get_current_user)
+):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Name", "Phone", "Condition", "Last Visit", "Doctor", "Notes"])
+    writer.writerow(["Ahmed Khan", "03001234567", "Diabetes", "2026-01-15", "Dr. Ali", "Monthly checkup"])
+    writer.writerow(["Sara Malik", "03211234567", "Blood Pressure", "2026-02-10", "Dr. Ali", "Needs follow up"])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=patient_import_template.csv"}
+    )
 @router.get("/stats")
 def lead_stats(
     db: Session = Depends(get_db),

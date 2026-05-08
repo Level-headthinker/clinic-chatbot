@@ -3,3 +3,6 @@ from app.models.user import User
 from app.models.doctor import Doctor
 from app.models.appointment import Appointment
 from app.models.chat import ChatSession, Lead
+from app.models.patient import Patient
+from app.models.visit import VisitRecord
+from app.models.invoice import Invoice

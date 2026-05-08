@@ -1,5 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+
 import {
   LayoutDashboard,
   Users,
@@ -7,15 +8,20 @@ import {
   MessageSquare,
   LogOut,
   Stethoscope,
+  UserCheck,
+  Receipt,
 } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { label: "Doctors", icon: Stethoscope, path: "/doctors" },
+  { label: "Patients", icon: UserCheck, path: "/patients" },
   { label: "Appointments", icon: Calendar, path: "/appointments" },
+  { label: "Billing", icon: Receipt, path: "/billing" },
   { label: "Leads", icon: Users, path: "/leads" },
   { label: "Chat Preview", icon: MessageSquare, path: "/chat-preview" },
 ];
+
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();

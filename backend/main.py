@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, chat, doctors, appointments, leads, superadmin
-import app.models
+from app.routers import auth, chat, doctors, appointments, leads, superadmin, patients, visits, billing
 
 app = FastAPI(
     title="Clinic Chatbot API",
@@ -26,6 +25,9 @@ app.include_router(doctors.router)
 app.include_router(appointments.router)
 app.include_router(leads.router)
 app.include_router(superadmin.router)
+app.include_router(patients.router)
+app.include_router(visits.router)
+app.include_router(billing.router)
 
 @app.get("/")
 def root():

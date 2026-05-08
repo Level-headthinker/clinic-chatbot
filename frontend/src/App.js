@@ -8,6 +8,9 @@ import Appointments from "./pages/Appointments";
 import Leads from "./pages/Leads";
 import ChatPreview from "./pages/ChatPreview";
 import SuperAdmin from "./pages/SuperAdmin";
+import Patients from "./pages/Patients";
+import PatientDetail from "./pages/PatientDetail";
+import Billing from "./pages/Billing";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -30,6 +33,9 @@ export default function App() {
           <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
           <Route path="/chat-preview" element={<ProtectedRoute><ChatPreview /></ProtectedRoute>} />
           <Route path="/" element={<Navigate to="/login" />} />
+          <Route path="/patients" element={<ProtectedRoute><Patients /></ProtectedRoute>} />
+          <Route path="/patients/:id" element={<ProtectedRoute><PatientDetail /></ProtectedRoute>} />
+          <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

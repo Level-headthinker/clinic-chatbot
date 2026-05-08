@@ -10,6 +10,10 @@ from app.database import get_db
 from app.models.doctor import Doctor
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.models.doctor import Doctor
+from app.models.appointment import Appointment
+from app.models.visit import VisitRecord
+
 
 router = APIRouter(prefix="/doctors", tags=["Doctors"])
 
@@ -74,15 +78,21 @@ def list_doctors(
 ).all()
     return [
         {
-            "id": str(d.id),
-            "name": d.name,
-            "specialty": d.specialty,
-            "qualification": d.qualification,
-            "fee": d.fee,
-            "available_slots": d.available_slots,
-            "treatments": d.treatments or [],
-            "timings": d.timings or [],
-            "is_active": d.is_active
+        "id": str(d.id),
+        "name": d.name,
+        "specialty": d.specialty,
+        "qualification": d.qualification,
+        "fee": d.fee,
+        "available_slots": d.available_slots,
+        "treatments": d.treatments or [],
+        "timings": d.timings or [],
+        "is_active": d.is_active,
+                "total_visits": db.query(VisitRecord).filter(
+            VisitRecord.doctor_id == d.id
+        ).count(),
+        "total_appointments": db.query(Appointment).filter(
+            Appointment.doctor_id == d.id
+        ).count()    
         }
         for d in doctors
     ]

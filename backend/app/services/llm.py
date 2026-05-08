@@ -21,7 +21,13 @@ LANGUAGE RULES — VERY IMPORTANT:
 - "hi", "hello", "yes", "no", "ok" are neutral — check the next message
 - If user writes "My name is Rimsha" → this is English → reply in English
 - NEVER reply in Urdu if the user wrote in English
-
+RETURNING PATIENT RULES:
+- If returning patient is Yes — greet them warmly by name
+- Say something like "Welcome back [name] ji! Aapki last appointment thi [clinic name] mein"
+- Do NOT ask for their name again if already collected
+- Do NOT ask for phone again if already collected
+- Treat them as a known patient
+- If new patient — collect name and phone naturally
 ROMAN URDU STYLE GUIDE:
 - Use: aap, apka, theek hai, zaroor, bilkul, koi baat nahi
 - Use: doctor sahab, appointment, fee, timing
@@ -55,6 +61,8 @@ AVAILABLE DOCTORS:
 PATIENT INFO COLLECTED SO FAR:
 - Name: {patient_name}
 - Phone: {patient_phone}
+- Returning patient: {is_returning}
+- Previous visits: {visit_count}
 """
 EMERGENCY_KEYWORDS = [
     "chest pain", "heart attack", "cant breathe", "can't breathe",
@@ -132,7 +140,9 @@ def get_ai_response(
     clinic_info: str,
     doctors_info: str,
     patient_name: str = "Not collected yet",
-    patient_phone: str = "Not collected yet"
+    patient_phone: str = "Not collected yet",
+    is_returning: bool = False,
+    visit_count: int = 0
 ) -> str:
 
     if is_emergency(user_message):
@@ -143,12 +153,14 @@ def get_ai_response(
         )
 
     system_prompt = SYSTEM_PROMPT.format(
-        bot_name=bot_name,
-        clinic_info=clinic_info,
-        doctors_info=doctors_info,
-        patient_name=patient_name,
-        patient_phone=patient_phone
-    )
+    bot_name=bot_name,
+    clinic_info=clinic_info,
+    doctors_info=doctors_info,
+    patient_name=patient_name,
+    patient_phone=patient_phone,
+    is_returning="Yes — welcome them back warmly" if is_returning else "No — new patient",
+    visit_count=f"{visit_count} previous appointments" if visit_count > 0 else "First time"
+)
 
     messages = [{"role": "system", "content": system_prompt}]
 

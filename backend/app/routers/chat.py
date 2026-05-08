@@ -4,14 +4,12 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import uuid
-import re
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.models.chat import ChatSession, Lead
 from app.models.tenant import Tenant
 from app.models.doctor import Doctor
 from app.models.appointment import Appointment
-from app.services.llm import get_ai_response, detect_language, extract_intent
 from app.services.email import send_booking_notification, send_lead_notification
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -49,23 +47,21 @@ def get_doctors_info(doctors: list) -> str:
             f"{timings}"
         )
     return "\n".join(info)
-def try_save_appointment(
-    session: ChatSession,
-    tenant_id,
-    db: Session
-):
-    print(f"DEBUG INSIDE: name={session.patient_name} phone={session.patient_phone}")
-    
+
+
+def try_save_appointment(session, tenant_id, db, tenant_name):
     if not session.patient_name or not session.patient_phone:
         return
 
-    existing = db.query(Appointment).filter(
+    # Only block if there is already a PENDING or CONFIRMED appointment
+    # Allow if all previous appointments are completed or cancelled
+    active_appointment = db.query(Appointment).filter(
         Appointment.patient_phone == session.patient_phone,
         Appointment.tenant_id == tenant_id,
-        Appointment.status != "cancelled"
+        Appointment.status.in_(["pending", "confirmed"])
     ).first()
-    if existing:
-        print(f"DEBUG: Already exists for {session.patient_phone}")
+    if active_appointment:
+        print(f"DEBUG: Active appointment already exists for {session.patient_phone}")
         return
 
     doctor = db.query(Doctor).filter(
@@ -75,8 +71,6 @@ def try_save_appointment(
     if not doctor:
         print("DEBUG: No doctor found")
         return
-
-    print(f"DEBUG: Creating appointment for {session.patient_name}")
 
     slot = datetime.now().replace(
         hour=10, minute=0, second=0, microsecond=0
@@ -92,23 +86,19 @@ def try_save_appointment(
         status="pending"
     )
     db.add(appointment)
-    print(f"DEBUG: Done - appointment added")
-      # Send booking notification email
+    print(f"DEBUG: Appointment created for {session.patient_name}")
+
     send_booking_notification(
         patient_name=session.patient_name,
         patient_phone=session.patient_phone,
         patient_concern=appointment.patient_concern or "General",
         doctor_name=doctor.name,
-        slot=str(appointment.slot_datetime),
-        clinic_name=db.query(Tenant).filter(
-            Tenant.id == tenant_id
-        ).first().name
+        slot=appointment.slot_datetime.strftime("%A, %d %B %Y at %I:%M %p"),
+        clinic_name=tenant_name
     )
-def try_save_lead(
-    session: ChatSession,
-    tenant_id,
-    db: Session
-):
+
+
+def try_save_lead(session, tenant_id, db, tenant_name):
     if not session.patient_name or not session.patient_phone:
         return
 
@@ -120,23 +110,23 @@ def try_save_lead(
         return
 
     lead = Lead(
-            tenant_id=tenant_id,
-            name=session.patient_name,
-            phone=session.patient_phone,
-            concern=session.messages[-2]["content"] if len(session.messages) >= 2 else "General Inquiry",
-            source="chatbot",
-            status="new"
-        )
+        tenant_id=tenant_id,
+        name=session.patient_name,
+        phone=session.patient_phone,
+        concern=session.messages[-2]["content"] if len(session.messages) >= 2 else "General Inquiry",
+        source="chatbot",
+        status="new"
+    )
     db.add(lead)
-        # Send lead notification email
+
     send_lead_notification(
         patient_name=session.patient_name,
         patient_phone=session.patient_phone,
         concern=session.current_intent or "General Inquiry",
-        clinic_name=db.query(Tenant).filter(
-            Tenant.id == tenant_id
-        ).first().name
+        clinic_name=tenant_name
     )
+
+
 @router.post("/message", response_model=MessageResponse)
 def send_message(data: MessageRequest, db: Session = Depends(get_db)):
 
@@ -167,18 +157,26 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
         db.add(session)
         db.flush()
 
-# Use LLM to extract name and phone from full conversation
+    # Use LLM to extract name and phone from conversation
     if not session.patient_name or not session.patient_phone:
-        # Build current messages including this new message
         current_messages = list(session.messages)
         current_messages.append({"role": "user", "content": data.message})
-        
         info = extract_patient_info(current_messages)
-        
         if info["name"] and not session.patient_name:
             session.patient_name = info["name"]
         if info["phone"] and not session.patient_phone:
             session.patient_phone = info["phone"]
+
+    # Check if returning patient by phone number
+    is_returning = False
+    visit_count = 0
+    if session.patient_phone:
+        prev_appointments = db.query(Appointment).filter(
+            Appointment.patient_phone == session.patient_phone,
+            Appointment.tenant_id == tenant.id
+        ).count()
+        is_returning = prev_appointments > 0
+        visit_count = prev_appointments
 
     # Get doctors for this clinic
     doctors = db.query(Doctor).filter(
@@ -189,16 +187,17 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
     clinic_info = (
         f"Clinic Name: {tenant.name}\n"
         f"Bot Name: {tenant.bot_name}\n"
-        f"Welcome Message: {tenant.welcome_message}"
+        f"Welcome Message: {tenant.welcome_message}\n"
+        f"Clinic Timings: Monday to Saturday, 9am to 9pm\n"
+        f"Emergency: Call 1122"
     )
     doctors_info = get_doctors_info(doctors)
 
-# Detect intent and language from USER MESSAGE ONLY
+    # Detect intent and language from user message only
     intent = extract_intent(data.message)
     language = detect_language(data.message)
 
-# Only change language if we got a clear signal
-    # Numbers and single neutral words should not change language
+    # Only change language if we got a clear signal
     if language != "en" or session.language == "en":
         session.language = language
     session.current_intent = intent
@@ -211,7 +210,9 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
         clinic_info=clinic_info,
         doctors_info=doctors_info,
         patient_name=session.patient_name or "Not collected yet",
-        patient_phone=session.patient_phone or "Not collected yet"
+        patient_phone=session.patient_phone or "Not collected yet",
+        is_returning=is_returning,
+        visit_count=visit_count
     )
 
     # Save messages to session
@@ -220,8 +221,8 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
     messages.append({"role": "assistant", "content": ai_reply})
     session.messages = messages
 
-# Auto save lead when we have name and phone
-    try_save_lead(session, tenant.id, db)
+    # Auto save lead when we have name and phone
+    try_save_lead(session, tenant.id, db, tenant.name)
 
     # Only save appointment if patient confirmed
     confirmation_words = [
@@ -230,12 +231,12 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
         "ho jaye", "kar do", "book kar", "yes please"
     ]
     user_confirmed = any(
-        word in data.message.lower() 
+        word in data.message.lower()
         for word in confirmation_words
     )
 
     if user_confirmed:
-        try_save_appointment(session, tenant.id, db)
+        try_save_appointment(session, tenant.id, db, tenant.name)
         # Mark lead as converted when appointment confirmed
         lead = db.query(Lead).filter(
             Lead.phone == session.patient_phone,

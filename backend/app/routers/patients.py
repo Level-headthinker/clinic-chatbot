@@ -238,4 +238,4 @@ def delete_patient(
 
     patient.is_active = False
     db.commit()
-    return {"message": "Patient removed"}
+    return {"message": "Patient removed"}   

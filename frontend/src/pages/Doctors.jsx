@@ -18,12 +18,12 @@ export default function Doctors() {
     timings: []
   });
 
-const [timingInput, setTimingInput] = useState({
+  const [timingInput, setTimingInput] = useState({
     day: "Monday",
     from: "09:00 AM",
     to: "05:00 PM"
-});
-const [editId, setEditId] = useState(null);
+  });
+  const [editId, setEditId] = useState(null);
 
   useEffect(() => {
     fetchDoctors();
@@ -104,42 +104,42 @@ const [editId, setEditId] = useState(null);
   const handleEdit = (doctor) => {
     setEditId(doctor.id);
     setForm({
-        name: doctor.name,
-        specialty: doctor.specialty,
-        qualification: doctor.qualification || "",
-        fee: doctor.fee || "",
-        bio: doctor.bio || "",
-        treatments: doctor.treatments ? doctor.treatments.join(", ") : "",
-        timings: doctor.timings || []
+      name: doctor.name,
+      specialty: doctor.specialty,
+      qualification: doctor.qualification || "",
+      fee: doctor.fee || "",
+      bio: doctor.bio || "",
+      treatments: doctor.treatments ? doctor.treatments.join(", ") : "",
+      timings: doctor.timings || []
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
-};
+  };
 
-const handleUpdate = async (e) => {
+  const handleUpdate = async (e) => {
     e.preventDefault();
     setError("");
     try {
-        await api.put(`/doctors/${editId}`, {
-            name: form.name,
-            specialty: form.specialty,
-            qualification: form.qualification,
-            fee: form.fee,
-            bio: form.bio,
-            treatments: form.treatments
-                .split(",")
-                .map(t => t.trim())
-                .filter(t => t),
-            timings: form.timings,
-        });
-        resetForm();
-        setEditId(null);
-        setShowForm(false);
-        fetchDoctors();
+      await api.put(`/doctors/${editId}`, {
+        name: form.name,
+        specialty: form.specialty,
+        qualification: form.qualification,
+        fee: form.fee,
+        bio: form.bio,
+        treatments: form.treatments
+          .split(",")
+          .map(t => t.trim())
+          .filter(t => t),
+        timings: form.timings,
+      });
+      resetForm();
+      setEditId(null);
+      setShowForm(false);
+      fetchDoctors();
     } catch (err) {
-        setError("Failed to update doctor");
+      setError("Failed to update doctor");
     }
-};
+  };
 
   return (
     <div style={styles.layout}>
@@ -159,8 +159,8 @@ const handleUpdate = async (e) => {
         {showForm && (
           <div style={styles.formCard}>
             <h3 style={styles.formTitle}>
-    {editId ? "Edit Doctor" : "Add New Doctor"}
-</h3>{error && <p style={styles.error}>{error}</p>}
+              {editId ? "Edit Doctor" : "Add New Doctor"}
+            </h3>{error && <p style={styles.error}>{error}</p>}
             <form onSubmit={editId ? handleUpdate : handleAdd} style={styles.form}>
               <div style={styles.formGrid}>
                 <input
@@ -218,7 +218,7 @@ const handleUpdate = async (e) => {
                     value={timingInput.day}
                     onChange={(e) => setTimingInput({ ...timingInput, day: e.target.value })}
                   >
-                    {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(d => (
+                    {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map(d => (
                       <option key={d}>{d}</option>
                     ))}
                   </select>
@@ -289,7 +289,7 @@ const handleUpdate = async (e) => {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {["Name", "Specialty", "Qualification", "Fee", "Treatments", "Timings", "Status", "Action"].map(h => (
+                  {["Name", "Specialty", "Qualification", "Fee", "Treatments", "Timings", "Visits", "Status", "Action"].map(h => (
                     <th key={h} style={styles.th}>{h}</th>
                   ))}
                 </tr>
@@ -322,6 +322,16 @@ const handleUpdate = async (e) => {
                       ) : "-"}
                     </td>
                     <td style={styles.td}>
+                      <span style={styles.visitBadge}>
+                        {d.total_visits || 0}
+                      </span>
+                    </td>
+                    <td style={styles.td}>
+                      <span style={styles.apptBadge}>
+                        {d.total_appointments || 0}
+                      </span>
+                    </td>
+                    <td style={styles.td}>
                       <span style={{
                         ...styles.badge,
                         backgroundColor: d.is_active ? "#dcfce7" : "#fee2e2",
@@ -330,22 +340,22 @@ const handleUpdate = async (e) => {
                         {d.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
-                  <td style={styles.td}>
-    <div style={{ display: "flex", gap: "8px" }}>
-        <button
-            onClick={() => handleEdit(d)}
-            style={styles.editButton}
-        >
-            ✏️
-        </button>
-        <button
-            onClick={() => handleDelete(d.id)}
-            style={styles.deleteButton}
-        >
-            <Trash2 size={14} />
-        </button>
-    </div>
-</td>
+                    <td style={styles.td}>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button
+                          onClick={() => handleEdit(d)}
+                          style={styles.editButton}
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => handleDelete(d.id)}
+                          style={styles.deleteButton}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -438,6 +448,22 @@ const styles = {
     fontSize: "11px",
     fontWeight: "600",
   },
+  visitBadge: {
+    backgroundColor: "#f0fdf4",
+    color: "#16a34a",
+    padding: "3px 10px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "600",
+},
+apptBadge: {
+    backgroundColor: "#eff6ff",
+    color: "#2563eb",
+    padding: "3px 10px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "600",
+},
   formButtons: { display: "flex", gap: "12px" },
   submitButton: {
     backgroundColor: "#2563eb",
@@ -502,5 +528,5 @@ const styles = {
     borderRadius: "6px",
     cursor: "pointer",
     fontSize: "14px",
-},
+  },
 };

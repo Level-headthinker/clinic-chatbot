@@ -26,40 +26,50 @@ export default function ChatPreview() {
   }, [messages]);
 
   const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+  if (!input.trim() || loading) return;
 
-    const userMessage = input.trim();
-    setInput("");
+  const userMessage = input.trim();
+  setInput("");
+  setMessages((prev) => [
+    ...prev,
+    { role: "user", content: userMessage },
+  ]);
+  setLoading(true);
+
+  try {
+    // Get tenant_slug from multiple sources
+    const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+    const slug = 
+      user?.tenant_slug || 
+      storedUser?.tenant_slug || 
+      storedUser?.tenant_id ||
+      "rimshaclinic";
+
+    console.log("Sending with slug:", slug); // debug
+
+    const res = await api.post("/chat/message", {
+      message: userMessage,
+      tenant_slug: slug,
+      session_token: sessionToken || null,
+    });
+
+    setSessionToken(res.data.session_token);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: userMessage },
+      { role: "assistant", content: res.data.reply },
     ]);
-    setLoading(true);
-
-    try {
-      const res = await api.post("/chat/message", {
-        message: userMessage,
-        tenant_slug: user?.tenant_slug,
-        session_token: sessionToken,
-      });
-
-      setSessionToken(res.data.session_token);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: res.data.reply },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Sorry, something went wrong. Please try again.",
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (err) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: "Sorry, something went wrong. Please try again.",
+      },
+    ]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

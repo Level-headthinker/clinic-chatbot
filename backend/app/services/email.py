@@ -1,4 +1,5 @@
 import smtplib
+import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.config import settings
@@ -9,22 +10,23 @@ def send_email(to: str, subject: str, body: str):
         print("Email not configured — skipping")
         return
 
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = settings.MAIL_EMAIL
-        msg["To"] = to
+    def _send():
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = settings.MAIL_EMAIL
+            msg["To"] = to
+            msg.attach(MIMEText(body, "html"))
 
-        msg.attach(MIMEText(body, "html"))
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+                server.login(settings.MAIL_EMAIL, settings.MAIL_PASSWORD)
+                server.sendmail(settings.MAIL_EMAIL, to, msg.as_string())
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(settings.MAIL_EMAIL, settings.MAIL_PASSWORD)
-            server.sendmail(settings.MAIL_EMAIL, to, msg.as_string())
+            print(f"Email sent to {to}")
+        except Exception as e:
+            print(f"Email failed: {e}")
 
-        print(f"Email sent to {to}")
-
-    except Exception as e:
-        print(f"Email failed: {e}")
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def send_booking_notification(

@@ -171,12 +171,26 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
     is_returning = False
     visit_count = 0
     if session.patient_phone:
+        from app.models.patient import Patient
+        from app.models.visit import VisitRecord
+
         prev_appointments = db.query(Appointment).filter(
             Appointment.patient_phone == session.patient_phone,
             Appointment.tenant_id == tenant.id
         ).count()
-        is_returning = prev_appointments > 0
+
+        existing_patient = db.query(Patient).filter(
+            Patient.phone == session.patient_phone,
+            Patient.tenant_id == tenant.id
+        ).first()
+
+        is_returning = prev_appointments > 0 or existing_patient is not None
         visit_count = prev_appointments
+
+        if existing_patient:
+            # Pass their name to session if not already set
+            if not session.patient_name:
+                session.patient_name = existing_patient.name
 
     # Get doctors for this clinic
     doctors = db.query(Doctor).filter(

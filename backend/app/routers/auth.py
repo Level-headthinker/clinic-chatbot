@@ -97,11 +97,13 @@ def login(
         )
 
     token = create_access_token(data={"sub": str(user.id)})
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
     return {
         "access_token": token,
         "token_type": "bearer",
         "tenant_id": str(user.tenant_id),
+        "tenant_slug": tenant.slug,       
         "user_name": user.full_name
     }
 

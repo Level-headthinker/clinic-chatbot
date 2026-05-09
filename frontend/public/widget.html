@@ -189,13 +189,14 @@
 </div>
 
 <script>
-  const BACKEND = "http://127.0.0.1:8000";
+  const BACKEND = "https://clinic-chatbot-backend.onrender.com";
   const CLINIC_SLUG = "city-clinic";
 
   let sessionToken = null;
   const messagesEl = document.getElementById("messages");
   const inputEl = document.getElementById("input");
   const sendBtn = document.getElementById("sendBtn");
+
 
   function addMessage(role, text) {
     const div = document.createElement("div");

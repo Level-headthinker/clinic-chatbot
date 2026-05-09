@@ -24,7 +24,6 @@ export default function ChatPreview() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
   const sendMessage = async () => {
   if (!input.trim() || loading) return;
 
@@ -37,15 +36,20 @@ export default function ChatPreview() {
   setLoading(true);
 
   try {
-    // Get tenant_slug from multiple sources
     const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-    const slug = 
-      user?.tenant_slug || 
-      storedUser?.tenant_slug || 
+    const slug =
+      user?.tenant_slug ||
+      storedUser?.tenant_slug ||
       storedUser?.tenant_id ||
-      "rimshaclinic";
+      "city-clinic";
 
-    console.log("Sending with slug:", slug); // debug
+    // DEBUG — check all values
+    console.log("=== CHAT DEBUG ===");
+    console.log("user from context:", user);
+    console.log("storedUser from localStorage:", storedUser);
+    console.log("slug being used:", slug);
+    console.log("API baseURL:", api.defaults.baseURL);
+    console.log("==================");
 
     const res = await api.post("/chat/message", {
       message: userMessage,
@@ -53,12 +57,22 @@ export default function ChatPreview() {
       session_token: sessionToken || null,
     });
 
+    console.log("Response received:", res.data);
+
     setSessionToken(res.data.session_token);
     setMessages((prev) => [
       ...prev,
       { role: "assistant", content: res.data.reply },
     ]);
   } catch (err) {
+    console.log("=== ERROR DEBUG ===");
+    console.log("Error status:", err.response?.status);
+    console.log("Error detail:", err.response?.data);
+    console.log("Request URL:", err.config?.url);
+    console.log("Request baseURL:", err.config?.baseURL);
+    console.log("Request payload:", err.config?.data);
+    console.log("==================");
+
     setMessages((prev) => [
       ...prev,
       {
@@ -70,6 +84,58 @@ export default function ChatPreview() {
     setLoading(false);
   }
 };
+
+//   const sendMessage = async () => {
+//   if (!input.trim() || loading) return;
+
+//   const userMessage = input.trim();
+//   setInput("");
+//   setMessages((prev) => [
+//     ...prev,
+//     { role: "user", content: userMessage },
+//   ]);
+//   setLoading(true);
+
+//   try {
+//     // Get tenant_slug from multiple sources
+//     const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+//     const slug = 
+//       user?.tenant_slug || 
+//       storedUser?.tenant_slug || 
+//       storedUser?.tenant_id ||
+//       "rimshaclinic";
+
+//     console.log("=== CHAT DEBUG ===");
+//     console.log("user from context:", user);
+//     console.log("storedUser from localStorage:", storedUser);
+//     console.log("slug being used:", slug);
+//     console.log("API baseURL:", api.defaults.baseURL);
+//     console.log("==================");
+
+//     const res = await api.post("/chat/message", {
+//       message: userMessage,
+//       tenant_slug: slug,
+//       session_token: sessionToken || null,
+//     });
+//     console.log("Response received:", res.data);
+
+//     setSessionToken(res.data.session_token);
+//     setMessages((prev) => [
+//       ...prev,
+//       { role: "assistant", content: res.data.reply },
+//     ]);
+//   } catch (err) {
+//     setMessages((prev) => [
+//       ...prev,
+//       {
+//         role: "assistant",
+//         content: "Sorry, something went wrong. Please try again.",
+//       },
+//     ]);
+//   } finally {
+//     setLoading(false);
+//   }
+// };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

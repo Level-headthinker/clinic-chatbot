@@ -103,7 +103,7 @@ def login(
         "access_token": token,
         "token_type": "bearer",
         "tenant_id": str(user.tenant_id),
-        "tenant_slug": tenant.slug,       
+        "tenant_slug": tenant.slug,
         "user_name": user.full_name
     }
 

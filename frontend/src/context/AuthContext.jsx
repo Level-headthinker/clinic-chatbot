@@ -29,15 +29,14 @@ export const AuthProvider = ({ children }) => {
       headers: { "Content-Type": "multipart/form-data" },
     });
 
-    const { access_token, tenant_id,tenant_slug, user_name } = response.data;
+    const { access_token, tenant_id, tenant_slug, user_name } = response.data;
 
-    localStorage.setItem("token", access_token);
-    localStorage.setItem(
-      "user",
-      JSON.stringify({ email, tenant_id,tenant_slug, user_name })
-    );
-
-    setUser({ email, tenant_id,tenant_slug, user_name });
+localStorage.setItem("token", access_token);
+localStorage.setItem(
+  "user",
+  JSON.stringify({ email, tenant_id, tenant_slug, user_name })
+);
+setUser({ email, tenant_id, tenant_slug, user_name });
     return response.data;
   };
 

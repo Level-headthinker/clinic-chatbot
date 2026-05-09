@@ -5,7 +5,7 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "https://clinic-chatbot-backend.onrender.com",
+  baseURL: "https://clinic-chatbot-backend-eysi.onrender.com",
   headers: {
     "Content-Type": "application/json",
   },

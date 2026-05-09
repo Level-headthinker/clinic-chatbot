@@ -219,7 +219,7 @@ const downloadTemplate = () => {
                     <td style={styles.td}>
                       {new Date(l.created_at).toLocaleDateString()}
                     </td>
-                    <td style={styles.td} style={{ display: "flex", gap: "8px" }}>
+                    <td style={{ ...styles.td, display: "flex", gap: "8px" }}>
                       <select
                         style={styles.statusSelect}
                         value={l.status}

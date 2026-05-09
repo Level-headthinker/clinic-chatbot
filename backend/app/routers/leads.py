@@ -2,6 +2,7 @@
 # Admin can view all leads, update their status, and add notes for follow-up tracking.
 
 from fastapi import APIRouter, Depends, HTTPException,UploadFile, File
+from fastapi.responses import StreamingResponse
 import csv
 import io
 from sqlalchemy.orm import Session
@@ -106,15 +107,22 @@ async def import_patients(
     current_user: User = Depends(get_current_user)
 ):
     content = await file.read()
-    decoded = content.decode("utf-8")
+    # Try UTF-8 first, fall back to Windows encoding
+    try:
+        decoded = content.decode("utf-8")
+    except UnicodeDecodeError:
+        decoded = content.decode("latin-1")
     reader = csv.DictReader(io.StringIO(decoded))
 
     imported = 0
     skipped = 0
 
     for row in reader:
-        phone = row.get("Phone", "").strip()
-        name = row.get("Name", "").strip()
+        # Handle any case variation in headers
+        row_lower = {k.lower().strip(): v for k, v in row.items()}
+        phone = row_lower.get("phone", "").strip()
+        name = row_lower.get("name", "").strip()
+        condition = row_lower.get("condition", "") or row_lower.get("concern", "") or ""
 
         if not phone or not name:
             skipped += 1
@@ -134,11 +142,10 @@ async def import_patients(
             tenant_id=current_user.tenant_id,
             name=name,
             phone=phone,
-            concern=row.get("Condition", "Existing Patient"),
+            concern=condition or "Existing Patient",
             source="import",
             status="contacted",
-            is_existing_patient=True,
-        )
+                )
         db.add(lead)
         imported += 1
 
@@ -150,9 +157,7 @@ async def import_patients(
     }
 
 @router.get("/import-template")
-def download_template(
-    current_user: User = Depends(get_current_user)
-):
+def download_template():
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Name", "Phone", "Condition", "Last Visit", "Doctor", "Notes"])

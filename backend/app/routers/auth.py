@@ -26,6 +26,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     tenant_id: str
+    tenant_slug: str
     user_name: str
 
 

@@ -39,7 +39,7 @@ export default function ChatPreview() {
     try {
       const res = await api.post("/chat/message", {
         message: userMessage,
-        tenant_slug: "city-clinic",
+        tenant_slug: user?.tenant_slug,
         session_token: sessionToken,
       });
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>City Clinic — Chat</title>
+  <title>Clinic Chat</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -189,8 +189,10 @@
 </div>
 
 <script>
-  const BACKEND = "https://clinic-chatbot-backend-eysi.onrender.com" ||  "http://127.0.0.1:8000";
-  const CLINIC_SLUG = "city-clinic";
+  const BACKEND = "https://clinic-chatbot-backend-eysi.onrender.com";
+  const params = new URLSearchParams(window.location.search);
+  const CLINIC_SLUG = params.get("clinic") || "city-clinic";
+  document.title = CLINIC_SLUG + " — Chat";
 
   let sessionToken = null;
   const messagesEl = document.getElementById("messages");

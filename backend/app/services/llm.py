@@ -183,7 +183,7 @@ def get_ai_response(
     messages.append({"role": "user", "content": user_message})
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-8b-instant",
         messages=messages,
         max_tokens=300,
         temperature=0.7,
@@ -210,7 +210,7 @@ Conversation:
 """
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=50,
         temperature=0,

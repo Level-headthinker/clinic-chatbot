@@ -1,8 +1,4 @@
-// Manages login state for the entire app. Stores who is logged in,
-// their token, and their clinic info. Any component can check if user is logged
-// in or get user info without passing props everywhere.
-
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import api from "../api/axios";
 
 const AuthContext = createContext();
@@ -12,12 +8,46 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const savedUser = localStorage.getItem("user");
-    if (token && savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setLoading(false);
+    const loadUser = async () => {
+      const token = localStorage.getItem("token");
+      const savedUser = localStorage.getItem("user");
+
+      if (!token || !savedUser) {
+        setLoading(false);
+        return;
+      }
+
+      let parsedUser;
+      try {
+        parsedUser = JSON.parse(savedUser);
+      } catch {
+        localStorage.clear();
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+      setUser(parsedUser);
+
+      try {
+        const response = await api.get("/auth/me");
+        const refreshedUser = {
+          email: response.data.email,
+          tenant_id: response.data.tenant_id,
+          tenant_slug: response.data.tenant_slug,
+          user_name: response.data.full_name,
+          is_superadmin: response.data.is_superadmin,
+        };
+        localStorage.setItem("user", JSON.stringify(refreshedUser));
+        setUser(refreshedUser);
+      } catch {
+        localStorage.clear();
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUser();
   }, []);
 
   const login = async (email, password) => {
@@ -29,14 +59,26 @@ export const AuthProvider = ({ children }) => {
       headers: { "Content-Type": "multipart/form-data" },
     });
 
-    const { access_token, tenant_id, tenant_slug, user_name } = response.data;
+    const {
+      access_token,
+      tenant_id,
+      tenant_slug,
+      user_name,
+      user_email,
+      is_superadmin,
+    } = response.data;
+
+    const loggedInUser = {
+      email: user_email || email,
+      tenant_id,
+      tenant_slug,
+      user_name,
+      is_superadmin,
+    };
 
     localStorage.setItem("token", access_token);
-    localStorage.setItem(
-      "user",
-      JSON.stringify({ email, tenant_id, tenant_slug, user_name })
-    );
-    setUser({ email, tenant_id, tenant_slug, user_name });
+    localStorage.setItem("user", JSON.stringify(loggedInUser));
+    setUser(loggedInUser);
     return response.data;
   };
 

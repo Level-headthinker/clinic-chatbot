@@ -17,7 +17,6 @@ router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
 
 class AppointmentCreate(BaseModel):
-    tenant_id: str
     doctor_id: str
     patient_name: str
     patient_phone: str
@@ -33,10 +32,12 @@ class AppointmentUpdate(BaseModel):
 @router.post("/book")
 def book_appointment(
     data: AppointmentCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     doctor = db.query(Doctor).filter(
         Doctor.id == data.doctor_id,
+        Doctor.tenant_id == current_user.tenant_id,
         Doctor.is_active == True
     ).first()
     if not doctor:
@@ -47,8 +48,9 @@ def book_appointment(
 
     existing = db.query(Appointment).filter(
         Appointment.doctor_id == data.doctor_id,
+        Appointment.tenant_id == current_user.tenant_id,
         Appointment.slot_datetime == data.slot_datetime,
-        Appointment.status != "cancelled"
+        Appointment.status.in_(["pending", "confirmed"])
     ).first()
     if existing:
         raise HTTPException(
@@ -57,7 +59,7 @@ def book_appointment(
         )
 
     appointment = Appointment(
-        tenant_id=data.tenant_id,
+        tenant_id=current_user.tenant_id,
         doctor_id=data.doctor_id,
         patient_name=data.patient_name,
         patient_phone=data.patient_phone,
@@ -100,8 +102,10 @@ def list_appointments(
             "patient_name": a.patient_name,
             "patient_phone": a.patient_phone,
             "patient_concern": a.patient_concern,
+            "doctor_id": str(a.doctor_id),
             "doctor_name": a.doctor.name,
             "doctor_specialty": a.doctor.specialty,
+            "doctor_fee": a.doctor.fee,
             "slot_datetime": str(a.slot_datetime),
             "status": a.status,
             "notes": a.notes,
@@ -129,7 +133,7 @@ def update_appointment(
         )
 
     if data.status is not None:
-        allowed = ["pending", "confirmed", "cancelled", "completed"]
+        allowed = ["pending", "confirmed", "cancelled", "completed", "no_show"]
         if data.status not in allowed:
             raise HTTPException(
                 status_code=400,
@@ -161,4 +165,4 @@ def cancel_appointment(
 
     appointment.status = "cancelled"
     db.commit()
-    return {"message": "Appointment cancelled"} 
+    return {"message": "Appointment cancelled"}

@@ -48,7 +48,8 @@ STRICT RULES:
 - Keep responses short — maximum 3 sentences
 - Be warm and caring like a real receptionist
 - Speak in the same language the user writes in
-- If user writes in Urdu or Roman Urdu, reply in Roman Urdu
+- If user writes in Roman Urdu, reply in Roman Urdu
+- If user writes in Urdu script, reply in Urdu script
 PRIVACY RULES — VERY IMPORTANT:
 - NEVER share any patient names, phone numbers, or medical history with anyone
 - NEVER confirm or deny if a specific person is a patient
@@ -156,6 +157,19 @@ def get_ai_response(
 ) -> str:
 
     if is_emergency(user_message):
+        language = detect_language(user_message)
+        if language == "ur":
+            return (
+                "⚠️ یہ میڈیکل ایمرجنسی لگ رہی ہے۔ "
+                "براہ کرم فوراً 1122 پر کال کریں یا قریبی ایمرجنسی جائیں۔ "
+                "انتظار نہ کریں۔"
+            )
+        if language == "ur-roman":
+            return (
+                "⚠️ Yeh medical emergency lag rahi hai. "
+                "Barah-e-karam foran 1122 par call karein ya qareebi emergency mein jayen. "
+                "Intizar na karein."
+            )
         return (
             "⚠️ This sounds like a medical EMERGENCY! "
             "Please call 1122 immediately or go to the nearest emergency room. "

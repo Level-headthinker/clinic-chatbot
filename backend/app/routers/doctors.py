@@ -4,7 +4,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from app.database import get_db
 from app.models.doctor import Doctor
@@ -24,9 +24,9 @@ class DoctorCreate(BaseModel):
     qualification: Optional[str] = None
     bio: Optional[str] = None
     fee: Optional[str] = None
-    available_slots: Optional[list] = []
-    treatments: Optional[list] = []
-    timings: Optional[list] = []
+    available_slots: list = Field(default_factory=list)
+    treatments: list = Field(default_factory=list)
+    timings: list = Field(default_factory=list)
 
 
 class DoctorUpdate(BaseModel):

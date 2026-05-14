@@ -1,15 +1,18 @@
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-
 import {
-  LayoutDashboard,
-  Users,
   Calendar,
-  MessageSquare,
+  LayoutDashboard,
   LogOut,
-  Stethoscope,
-  UserCheck,
+  MessageSquare,
+  Moon,
   Receipt,
+  Shield,
+  Stethoscope,
+  Sun,
+  UserCheck,
+  Users,
 } from "lucide-react";
 
 const navItems = [
@@ -22,10 +25,23 @@ const navItems = [
   { label: "Chat Preview", icon: MessageSquare, path: "/chat-preview" },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ open = false, onClose }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [darkMode, setDarkMode] = useState(
+    () => localStorage.getItem("theme") === "dark"
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = darkMode ? "dark" : "light";
+    localStorage.setItem("theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+
+  const goTo = (path) => {
+    navigate(path);
+    onClose?.();
+  };
 
   const handleLogout = () => {
     logout();
@@ -33,131 +49,53 @@ export default function Sidebar() {
   };
 
   return (
-    <div style={styles.sidebar}>
-      <div style={styles.logoArea}>
-        <h2 style={styles.logo}>🏥 ClinicBot</h2>
-        <p style={styles.clinicName}>
-          {user?.user_name || "Admin"}
-        </p>
+    <aside className={`sidebar ${open ? "open" : ""}`}>
+      <div className="sidebar-brand">
+        <div className="brand-mark">
+          <Stethoscope size={22} />
+        </div>
+        <div>
+          <p className="brand-title">ClinicBot</p>
+          <p className="brand-subtitle">{user?.user_name || "Clinic admin"}</p>
+        </div>
       </div>
 
-      <nav style={styles.nav}>
+      <nav className="sidebar-nav">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path;
+          const active = location.pathname === item.path;
           return (
             <button
               key={item.path}
-              onClick={() => navigate(item.path)}
-              style={isActive ? styles.navItemActive : styles.navItem}
+              className={`nav-item ${active ? "active" : ""}`}
+              onClick={() => goTo(item.path)}
             >
               <Icon size={18} />
               <span>{item.label}</span>
             </button>
           );
         })}
-        {user?.email === "admin@cityclinic.com" && (
+        {user?.is_superadmin && (
           <button
-            onClick={() => navigate("/super")}
-            style={{
-              display: "flex", alignItems: "center", gap: "12px",
-              padding: "12px 16px", borderRadius: "8px", border: "none",
-              backgroundColor: "#fef9c3", color: "#ca8a04",
-              fontSize: "14px", fontWeight: "600", cursor: "pointer",
-              textAlign: "left", width: "100%", marginTop: "8px"
-            }}
+            className={`nav-item ${location.pathname === "/super" ? "active" : ""}`}
+            onClick={() => goTo("/super")}
           >
-            ⚡ Super Admin
+            <Shield size={18} />
+            <span>Super Admin</span>
           </button>
         )}
       </nav>
 
-      <button onClick={handleLogout} style={styles.logout}>
-        <LogOut size={18} />
-        <span>Logout</span>
-      </button>
-    </div>
+      <div className="sidebar-footer">
+        <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
+          {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+          <span>{darkMode ? "Light mode" : "Dark mode"}</span>
+        </button>
+        <button onClick={handleLogout} className="logout-btn">
+          <LogOut size={18} />
+          <span>Logout</span>
+        </button>
+      </div>
+    </aside>
   );
 }
-
-const styles = {
-  sidebar: {
-    width: "240px",
-    minHeight: "100vh",
-    backgroundColor: "#1e3a5f",
-    display: "flex",
-    flexDirection: "column",
-    padding: "24px 16px",
-    position: "fixed",
-    top: 0,
-    left: 0,
-  },
-  logoArea: {
-    marginBottom: "32px",
-    paddingBottom: "24px",
-    borderBottom: "1px solid #2d5a8e",
-  },
-  logo: {
-    color: "#ffffff",
-    fontSize: "20px",
-    fontWeight: "700",
-    margin: "0 0 4px 0",
-  },
-  clinicName: {
-    color: "#93c5fd",
-    fontSize: "12px",
-    margin: 0,
-  },
-  nav: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-    flex: 1,
-  },
-  navItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    padding: "12px 16px",
-    borderRadius: "8px",
-    border: "none",
-    backgroundColor: "transparent",
-    color: "#93c5fd",
-    fontSize: "14px",
-    fontWeight: "500",
-    cursor: "pointer",
-    textAlign: "left",
-    width: "100%",
-  },
-  navItemActive: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    padding: "12px 16px",
-    borderRadius: "8px",
-    border: "none",
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    fontSize: "14px",
-    fontWeight: "600",
-    cursor: "pointer",
-    textAlign: "left",
-    width: "100%",
-  },
-  logout: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    padding: "12px 16px",
-    borderRadius: "8px",
-    border: "none",
-    backgroundColor: "transparent",
-    color: "#f87171",
-    fontSize: "14px",
-    fontWeight: "500",
-    cursor: "pointer",
-    textAlign: "left",
-    width: "100%",
-    marginTop: "auto",
-  },
-};

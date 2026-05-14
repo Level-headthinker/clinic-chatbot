@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import date
 from app.database import get_db
@@ -9,7 +9,7 @@ from app.models.patient import Patient
 from app.models.invoice import Invoice
 from app.models.user import User
 from app.services.auth import get_current_user
-import uuid
+from app.services.invoices import generate_invoice_number
 
 router = APIRouter(prefix="/visits", tags=["Visits"])
 
@@ -27,7 +27,7 @@ class VisitCreate(BaseModel):
     doctor_id: Optional[str] = None
     complaint: Optional[str] = None
     diagnosis: Optional[str] = None
-    prescription: Optional[List[PrescriptionItem]] = []
+    prescription: List[PrescriptionItem] = Field(default_factory=list)
     tests_ordered: Optional[str] = None
     test_results: Optional[str] = None
     doctor_notes: Optional[str] = None
@@ -76,16 +76,11 @@ def create_visit(
     db.flush()
 
     if data.fee and data.fee > 0:
-        tenant_visits = db.query(VisitRecord).filter(
-            VisitRecord.tenant_id == current_user.tenant_id
-        ).count()
-        invoice_number = f"INV-{str(current_user.tenant_id)[:6].upper()}-{tenant_visits + 1:04d}"
-
         invoice = Invoice(
             tenant_id=current_user.tenant_id,
             patient_id=data.patient_id,
             visit_id=visit.id,
-            invoice_number=invoice_number,
+            invoice_number=generate_invoice_number(current_user.tenant_id),
             consultation_fee=data.fee,
             additional_charges=[],
             total_amount=data.fee,

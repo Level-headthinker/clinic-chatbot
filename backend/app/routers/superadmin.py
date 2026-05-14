@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.tenant import Tenant
@@ -10,10 +11,8 @@ from app.services.auth import get_current_user
 
 router = APIRouter(prefix="/super", tags=["Super Admin"])
 
-SUPER_ADMIN_EMAIL = "admin@cityclinic.com"
-
 def verify_super_admin(current_user: User = Depends(get_current_user)):
-    if current_user.email != SUPER_ADMIN_EMAIL:
+    if not current_user.is_superadmin:
         raise HTTPException(status_code=403, detail="Not authorized")
     return current_user
 
@@ -26,9 +25,7 @@ def get_stats(
     total_tenants = db.query(Tenant).filter(Tenant.is_active == True).count()
     total_appointments = db.query(Appointment).count()
     total_leads = db.query(Lead).count()
-    total_doctors = db.query(Doctor).filter(
-    Doctor.is_active == True
-).count()
+    total_doctors = db.query(Doctor).filter(Doctor.is_active == True).count()
     total_chats = db.query(ChatSession).count()
 
     return {
@@ -48,21 +45,31 @@ def get_all_clinics(
     current_user: User = Depends(verify_super_admin)
 ):
     tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).all()
+
+    appointment_counts = dict(
+        db.query(Appointment.tenant_id, func.count(Appointment.id))
+        .group_by(Appointment.tenant_id)
+        .all()
+    )
+    lead_counts = dict(
+        db.query(Lead.tenant_id, func.count(Lead.id))
+        .group_by(Lead.tenant_id)
+        .all()
+    )
+    doctor_counts = dict(
+        db.query(Doctor.tenant_id, func.count(Doctor.id))
+        .filter(Doctor.is_active == True)
+        .group_by(Doctor.tenant_id)
+        .all()
+    )
+    chat_counts = dict(
+        db.query(ChatSession.tenant_id, func.count(ChatSession.id))
+        .group_by(ChatSession.tenant_id)
+        .all()
+    )
+
     result = []
     for t in tenants:
-        appointments = db.query(Appointment).filter(
-            Appointment.tenant_id == t.id
-        ).count()
-        leads = db.query(Lead).filter(
-            Lead.tenant_id == t.id
-        ).count()
-        doctors = db.query(Doctor).filter(
-            Doctor.tenant_id == t.id,
-            Doctor.is_active == True
-        ).count()
-        chats = db.query(ChatSession).filter(
-            ChatSession.tenant_id == t.id
-        ).count()
         result.append({
             "id": str(t.id),
             "name": t.name,
@@ -70,10 +77,10 @@ def get_all_clinics(
             "plan": t.plan,
             "is_active": t.is_active,
             "created_at": str(t.created_at),
-            "appointments": appointments,
-            "leads": leads,
-            "doctors": doctors,
-            "chats": chats,
+            "appointments": appointment_counts.get(t.id, 0),
+            "leads": lead_counts.get(t.id, 0),
+            "doctors": doctor_counts.get(t.id, 0),
+            "chats": chat_counts.get(t.id, 0),
         })
     return result
 

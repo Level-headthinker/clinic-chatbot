@@ -1,107 +1,99 @@
-import { useState, useEffect } from "react";
-import Sidebar from "../components/Sidebar";
+import { useCallback, useEffect, useState } from "react";
+import { Edit3, Plus, Trash2, X } from "lucide-react";
 import api from "../api/axios";
-import { Plus, Trash2 } from "lucide-react";
+import AppLayout from "../components/AppLayout";
+import EmptyState from "../components/EmptyState";
+import { SkeletonBlock } from "../components/Skeleton";
+import { useToast } from "../context/ToastContext";
+
+const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+const emptyForm = {
+  name: "",
+  specialty: "",
+  qualification: "",
+  fee: "",
+  bio: "",
+  treatments: "",
+  timings: [],
+};
 
 export default function Doctors() {
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    name: "",
-    specialty: "",
-    qualification: "",
-    fee: "",
-    bio: "",
-    treatments: "",
-    timings: []
-  });
-
+  const [form, setForm] = useState(emptyForm);
   const [timingInput, setTimingInput] = useState({
     day: "Monday",
     from: "09:00 AM",
-    to: "05:00 PM"
+    to: "05:00 PM",
   });
   const [editId, setEditId] = useState(null);
+  const { notify } = useToast();
 
-  useEffect(() => {
-    fetchDoctors();
-  }, []);
-
-  const fetchDoctors = async () => {
+  const fetchDoctors = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await api.get("/doctors/");
       setDoctors(res.data);
-    } catch (err) {
-      console.error(err);
+    } catch {
+      notify("Failed to load doctors.", "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify]);
+
+  useEffect(() => {
+    fetchDoctors();
+  }, [fetchDoctors]);
 
   const resetForm = () => {
-    setForm({
-      name: "",
-      specialty: "",
-      qualification: "",
-      fee: "",
-      bio: "",
-      treatments: "",
-      timings: []
-    });
+    setForm(emptyForm);
+    setEditId(null);
     setTimingInput({ day: "Monday", from: "09:00 AM", to: "05:00 PM" });
   };
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    setError("");
+  const payloadFromForm = () => ({
+    name: form.name,
+    specialty: form.specialty,
+    qualification: form.qualification,
+    fee: form.fee,
+    bio: form.bio,
+    treatments: form.treatments.split(",").map((item) => item.trim()).filter(Boolean),
+    timings: form.timings,
+    available_slots: [],
+  });
+
+  const saveDoctor = async (event) => {
+    event.preventDefault();
     try {
-      await api.post("/doctors/", {
-        name: form.name,
-        specialty: form.specialty,
-        qualification: form.qualification,
-        fee: form.fee,
-        bio: form.bio,
-        treatments: form.treatments
-          .split(",")
-          .map(t => t.trim())
-          .filter(t => t),
-        timings: form.timings,
-        available_slots: [],
-      });
+      if (editId) {
+        await api.put(`/doctors/${editId}`, payloadFromForm());
+        notify("Doctor updated.", "success");
+      } else {
+        await api.post("/doctors/", payloadFromForm());
+        notify("Doctor added.", "success");
+      }
       resetForm();
       setShowForm(false);
       fetchDoctors();
-    } catch (err) {
-      setError("Failed to add doctor");
+    } catch {
+      notify(editId ? "Failed to update doctor." : "Failed to add doctor.", "error");
     }
   };
 
-  const handleDelete = async (id) => {
+  const removeDoctor = async (id) => {
     if (!window.confirm("Remove this doctor?")) return;
     try {
       await api.delete(`/doctors/${id}`);
+      notify("Doctor removed.", "success");
       fetchDoctors();
-    } catch (err) {
-      console.error(err);
+    } catch {
+      notify("Failed to remove doctor.", "error");
     }
   };
 
-  const addTiming = () => {
-    setForm({
-      ...form,
-      timings: [...form.timings, { ...timingInput }]
-    });
-  };
-
-  const removeTiming = (index) => {
-    setForm({
-      ...form,
-      timings: form.timings.filter((_, i) => i !== index)
-    });
-  };
-  const handleEdit = (doctor) => {
+  const editDoctor = (doctor) => {
     setEditId(doctor.id);
     setForm({
       name: doctor.name,
@@ -110,423 +102,120 @@ export default function Doctors() {
       fee: doctor.fee || "",
       bio: doctor.bio || "",
       treatments: doctor.treatments ? doctor.treatments.join(", ") : "",
-      timings: doctor.timings || []
+      timings: doctor.timings || [],
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-    setError("");
-    try {
-      await api.put(`/doctors/${editId}`, {
-        name: form.name,
-        specialty: form.specialty,
-        qualification: form.qualification,
-        fee: form.fee,
-        bio: form.bio,
-        treatments: form.treatments
-          .split(",")
-          .map(t => t.trim())
-          .filter(t => t),
-        timings: form.timings,
-      });
-      resetForm();
-      setEditId(null);
-      setShowForm(false);
-      fetchDoctors();
-    } catch (err) {
-      setError("Failed to update doctor");
-    }
+  const addTiming = () => {
+    setForm((current) => ({
+      ...current,
+      timings: [...current.timings, { ...timingInput }],
+    }));
+  };
+
+  const removeTiming = (index) => {
+    setForm((current) => ({
+      ...current,
+      timings: current.timings.filter((_, itemIndex) => itemIndex !== index),
+    }));
   };
 
   return (
-    <div style={styles.layout}>
-      <Sidebar />
-      <div style={styles.main}>
-        <div style={styles.topBar}>
-          <h1 style={styles.heading}>Doctors</h1>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            style={styles.addButton}
-          >
-            <Plus size={16} />
-            Add Doctor
-          </button>
-        </div>
+    <AppLayout
+      title="Doctors"
+      subtitle="Manage specialties, fees, treatments, and chatbot booking hours."
+      actions={
+        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+          <Plus size={16} />
+          {showForm ? "Close form" : "Add doctor"}
+        </button>
+      }
+    >
+      {showForm && (
+        <section className="form-panel">
+          <h2>{editId ? "Edit doctor" : "Add new doctor"}</h2>
+          <form onSubmit={saveDoctor} className="form-stack">
+            <div className="form-grid">
+              <input className="input" placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+              <input className="input" placeholder="Specialty" value={form.specialty} onChange={(e) => setForm({ ...form, specialty: e.target.value })} required />
+              <input className="input" placeholder="Qualification" value={form.qualification} onChange={(e) => setForm({ ...form, qualification: e.target.value })} />
+              <input className="input" placeholder="Fee e.g. 1500 PKR" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} />
+            </div>
+            <textarea className="input textarea" placeholder="Short bio" value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
+            <input className="input" placeholder="Treatments, comma separated" value={form.treatments} onChange={(e) => setForm({ ...form, treatments: e.target.value })} />
 
-        {showForm && (
-          <div style={styles.formCard}>
-            <h3 style={styles.formTitle}>
-              {editId ? "Edit Doctor" : "Add New Doctor"}
-            </h3>{error && <p style={styles.error}>{error}</p>}
-            <form onSubmit={editId ? handleUpdate : handleAdd} style={styles.form}>
-              <div style={styles.formGrid}>
-                <input
-                  style={styles.input}
-                  placeholder="Full Name"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  required
-                />
-                <input
-                  style={styles.input}
-                  placeholder="Specialty (e.g. Cardiologist)"
-                  value={form.specialty}
-                  onChange={(e) => setForm({ ...form, specialty: e.target.value })}
-                  required
-                />
-                <input
-                  style={styles.input}
-                  placeholder="Qualification (e.g. MBBS, FCPS)"
-                  value={form.qualification}
-                  onChange={(e) => setForm({ ...form, qualification: e.target.value })}
-                />
-                <input
-                  style={styles.input}
-                  placeholder="Fee (e.g. 1500 PKR)"
-                  value={form.fee}
-                  onChange={(e) => setForm({ ...form, fee: e.target.value })}
-                />
+            <div className="field">
+              <label>Clinic timings</label>
+              <div className="action-row">
+                <select className="select" value={timingInput.day} onChange={(e) => setTimingInput({ ...timingInput, day: e.target.value })}>
+                  {days.map((day) => <option key={day}>{day}</option>)}
+                </select>
+                <input className="input" value={timingInput.from} onChange={(e) => setTimingInput({ ...timingInput, from: e.target.value })} />
+                <input className="input" value={timingInput.to} onChange={(e) => setTimingInput({ ...timingInput, to: e.target.value })} />
+                <button type="button" className="btn btn-secondary" onClick={addTiming}>Add day</button>
               </div>
-
-              <textarea
-                style={styles.textarea}
-                placeholder="Short bio (optional)"
-                value={form.bio}
-                onChange={(e) => setForm({ ...form, bio: e.target.value })}
-              />
-
-              <div style={styles.field}>
-                <label style={styles.label}>
-                  Treatments (comma separated)
-                </label>
-                <input
-                  style={styles.input}
-                  placeholder="Fever, Flu, Blood Pressure, Diabetes"
-                  value={form.treatments}
-                  onChange={(e) => setForm({ ...form, treatments: e.target.value })}
-                />
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>Clinic Timings</label>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                  <select
-                    style={{ ...styles.input, width: "130px" }}
-                    value={timingInput.day}
-                    onChange={(e) => setTimingInput({ ...timingInput, day: e.target.value })}
-                  >
-                    {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map(d => (
-                      <option key={d}>{d}</option>
-                    ))}
-                  </select>
-                  <input
-                    style={{ ...styles.input, width: "110px" }}
-                    placeholder="From e.g. 9:00 AM"
-                    value={timingInput.from}
-                    onChange={(e) => setTimingInput({ ...timingInput, from: e.target.value })}
-                  />
-                  <input
-                    style={{ ...styles.input, width: "110px" }}
-                    placeholder="To e.g. 5:00 PM"
-                    value={timingInput.to}
-                    onChange={(e) => setTimingInput({ ...timingInput, to: e.target.value })}
-                  />
-                  <button
-                    type="button"
-                    onClick={addTiming}
-                    style={styles.addTimingButton}
-                  >
-                    + Add Day
-                  </button>
-                </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
-                  {form.timings.map((t, i) => (
-                    <span key={i} style={styles.timingTag}>
-                      {t.day} {t.from} - {t.to}
-                      <span
-                        onClick={() => removeTiming(i)}
-                        style={{ cursor: "pointer", color: "#dc2626", marginLeft: "4px" }}
-                      >
-                        ✕
-                      </span>
-                    </span>
-                  ))}
-                  {form.timings.length === 0 && (
-                    <p style={{ fontSize: "12px", color: "#9ca3af" }}>
-                      No timings added yet
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div style={styles.formButtons}>
-                <button type="submit" style={styles.submitButton}>
-                  Save Doctor
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { resetForm(); setShowForm(false); }}
-                  style={styles.cancelButton}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        <div style={styles.tableCard}>
-          {loading ? (
-            <p>Loading...</p>
-          ) : doctors.length === 0 ? (
-            <p style={styles.empty}>
-              No doctors added yet. Click Add Doctor to start.
-            </p>
-          ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  {["Name", "Specialty", "Qualification", "Fee", "Treatments", "Timings", "Visits", "Status", "Action"].map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {doctors.map((d) => (
-                  <tr key={d.id} style={styles.tr}>
-                    <td style={styles.td}><strong>Dr. {d.name}</strong></td>
-                    <td style={styles.td}>{d.specialty}</td>
-                    <td style={styles.td}>{d.qualification || "-"}</td>
-                    <td style={styles.td}>{d.fee || "-"}</td>
-                    <td style={styles.td}>
-                      {d.treatments && d.treatments.length > 0 ? (
-                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                          {d.treatments.map((t, i) => (
-                            <span key={i} style={styles.treatmentTag}>{t}</span>
-                          ))}
-                        </div>
-                      ) : "-"}
-                    </td>
-                    <td style={styles.td}>
-                      {d.timings && d.timings.length > 0 ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                          {d.timings.map((t, i) => (
-                            <span key={i} style={{ fontSize: "12px", color: "#374151" }}>
-                              {t.day}: {t.from} - {t.to}
-                            </span>
-                          ))}
-                        </div>
-                      ) : "-"}
-                    </td>
-                    <td style={styles.td}>
-                      <span style={styles.visitBadge}>
-                        {d.total_visits || 0}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <span style={styles.apptBadge}>
-                        {d.total_appointments || 0}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <span style={{
-                        ...styles.badge,
-                        backgroundColor: d.is_active ? "#dcfce7" : "#fee2e2",
-                        color: d.is_active ? "#16a34a" : "#dc2626",
-                      }}>
-                        {d.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <button
-                          onClick={() => handleEdit(d)}
-                          style={styles.editButton}
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => handleDelete(d.id)}
-                          style={styles.deleteButton}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+              <div className="chip-row">
+                {form.timings.map((timing, index) => (
+                  <span className="chip" key={`${timing.day}-${index}`}>
+                    {timing.day} {timing.from}-{timing.to}
+                    <button type="button" onClick={() => removeTiming(index)} aria-label="Remove timing">
+                      <X size={12} />
+                    </button>
+                  </span>
                 ))}
-              </tbody>
-            </table>
-          )}
+              </div>
+            </div>
+
+            <div className="action-row">
+              <button className="btn btn-primary" type="submit">Save doctor</button>
+              <button className="btn btn-secondary" type="button" onClick={() => { resetForm(); setShowForm(false); }}>Cancel</button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      <section className="table-panel">
+        <div className="panel-header">
+          <h2>Clinic doctors</h2>
+          <span className="badge">{doctors.length} active</span>
         </div>
-      </div>
-    </div>
+        {loading ? (
+          <SkeletonBlock className="skeleton-table" />
+        ) : doctors.length === 0 ? (
+          <EmptyState
+            title="No doctors yet"
+            description="Add your first doctor so the chatbot can recommend the right specialist and show real appointment slots."
+            action={<button className="btn btn-primary" onClick={() => setShowForm(true)}>Add first doctor</button>}
+          />
+        ) : (
+          <table className="responsive-table">
+            <thead>
+              <tr>{["Doctor", "Specialty", "Fee", "Treatments", "Timings", "Visits", "Appointments", "Actions"].map((h) => <th key={h}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {doctors.map((doctor) => (
+                <tr key={doctor.id}>
+                  <td data-label="Doctor"><strong>Dr. {doctor.name}</strong><br /><span className="muted">{doctor.qualification || "Qualification not set"}</span></td>
+                  <td data-label="Specialty">{doctor.specialty}</td>
+                  <td data-label="Fee">{doctor.fee || "-"}</td>
+                  <td data-label="Treatments"><div className="chip-row">{(doctor.treatments || []).slice(0, 3).map((t) => <span className="chip" key={t}>{t}</span>)}</div></td>
+                  <td data-label="Timings">{(doctor.timings || []).length ? `${doctor.timings.length} day(s)` : "-"}</td>
+                  <td data-label="Visits">{doctor.total_visits || 0}</td>
+                  <td data-label="Appointments">{doctor.total_appointments || 0}</td>
+                  <td data-label="Actions">
+                    <div className="action-row" style={{ justifyContent: "flex-end" }}>
+                      <button className="icon-btn" onClick={() => editDoctor(doctor)} title="Edit doctor"><Edit3 size={15} /></button>
+                      <button className="icon-btn btn-danger" onClick={() => removeDoctor(doctor.id)} title="Remove doctor"><Trash2 size={15} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </AppLayout>
   );
 }
-
-const styles = {
-  layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" },
-  main: { marginLeft: "240px", padding: "32px", flex: 1 },
-  topBar: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "24px",
-  },
-  heading: { fontSize: "24px", fontWeight: "700", color: "#1e293b", margin: 0 },
-  addButton: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    backgroundColor: "#2563eb",
-    color: "#fff",
-    border: "none",
-    padding: "10px 16px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "14px",
-  },
-  formCard: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    padding: "24px",
-    marginBottom: "24px",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-  },
-  formTitle: { fontSize: "16px", fontWeight: "600", marginBottom: "16px", color: "#1e293b" },
-  error: { color: "#dc2626", fontSize: "14px", marginBottom: "12px" },
-  form: { display: "flex", flexDirection: "column", gap: "14px" },
-  formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" },
-  field: { display: "flex", flexDirection: "column", gap: "6px" },
-  label: { fontSize: "13px", fontWeight: "600", color: "#374151" },
-  input: {
-    padding: "10px 12px",
-    borderRadius: "8px",
-    border: "1px solid #d1d5db",
-    fontSize: "14px",
-    outline: "none",
-  },
-  textarea: {
-    padding: "10px 12px",
-    borderRadius: "8px",
-    border: "1px solid #d1d5db",
-    fontSize: "14px",
-    outline: "none",
-    resize: "vertical",
-    minHeight: "80px",
-  },
-  addTimingButton: {
-    backgroundColor: "#eff6ff",
-    color: "#2563eb",
-    border: "1px solid #bfdbfe",
-    padding: "10px 14px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "13px",
-    whiteSpace: "nowrap",
-  },
-  timingTag: {
-    backgroundColor: "#eff6ff",
-    color: "#2563eb",
-    padding: "4px 10px",
-    borderRadius: "20px",
-    fontSize: "12px",
-    display: "flex",
-    alignItems: "center",
-    gap: "4px",
-  },
-  treatmentTag: {
-    backgroundColor: "#f0fdf4",
-    color: "#16a34a",
-    padding: "2px 8px",
-    borderRadius: "12px",
-    fontSize: "11px",
-    fontWeight: "600",
-  },
-  visitBadge: {
-    backgroundColor: "#f0fdf4",
-    color: "#16a34a",
-    padding: "3px 10px",
-    borderRadius: "12px",
-    fontSize: "12px",
-    fontWeight: "600",
-},
-apptBadge: {
-    backgroundColor: "#eff6ff",
-    color: "#2563eb",
-    padding: "3px 10px",
-    borderRadius: "12px",
-    fontSize: "12px",
-    fontWeight: "600",
-},
-  formButtons: { display: "flex", gap: "12px" },
-  submitButton: {
-    backgroundColor: "#2563eb",
-    color: "#fff",
-    border: "none",
-    padding: "10px 20px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "14px",
-  },
-  cancelButton: {
-    backgroundColor: "#f1f5f9",
-    color: "#374151",
-    border: "none",
-    padding: "10px 20px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "14px",
-  },
-  tableCard: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    padding: "24px",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-    overflowX: "auto",
-  },
-  empty: { color: "#9ca3af", fontSize: "14px" },
-  table: { width: "100%", borderCollapse: "collapse" },
-  th: {
-    textAlign: "left",
-    padding: "12px",
-    fontSize: "12px",
-    fontWeight: "600",
-    color: "#6b7280",
-    borderBottom: "1px solid #e5e7eb",
-    textTransform: "uppercase",
-    whiteSpace: "nowrap",
-  },
-  tr: { borderBottom: "1px solid #f3f4f6" },
-  td: { padding: "12px", fontSize: "14px", color: "#374151", verticalAlign: "top" },
-  badge: {
-    padding: "4px 10px",
-    borderRadius: "20px",
-    fontSize: "12px",
-    fontWeight: "600",
-  },
-  deleteButton: {
-    backgroundColor: "#fee2e2",
-    color: "#dc2626",
-    border: "none",
-    padding: "6px 8px",
-    borderRadius: "6px",
-    cursor: "pointer",
-  },
-  editButton: {
-    backgroundColor: "#eff6ff",
-    color: "#2563eb",
-    border: "none",
-    padding: "6px 8px",
-    borderRadius: "6px",
-    cursor: "pointer",
-    fontSize: "14px",
-  },
-};

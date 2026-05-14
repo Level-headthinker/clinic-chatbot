@@ -1,13 +1,10 @@
-import { useState, useEffect } from "react";
-import Sidebar from "../components/Sidebar";
+import { useCallback, useEffect, useState } from "react";
+import { Download, MessageCircle, Trash2, Upload } from "lucide-react";
 import api from "../api/axios";
-
-const STATUS_COLORS = {
-  new: { bg: "#eff6ff", color: "#2563eb" },
-  contacted: { bg: "#fef9c3", color: "#ca8a04" },
-  converted: { bg: "#dcfce7", color: "#16a34a" },
-  lost: { bg: "#fee2e2", color: "#dc2626" },
-};
+import AppLayout from "../components/AppLayout";
+import EmptyState from "../components/EmptyState";
+import { SkeletonBlock } from "../components/Skeleton";
+import { useToast } from "../context/ToastContext";
 
 export default function Leads() {
   const [leads, setLeads] = useState([]);
@@ -16,40 +13,44 @@ export default function Leads() {
   const [filter, setFilter] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const { notify } = useToast();
+
+  const fetchLeads = useCallback(async () => {
+    setLoading(true);
+    try {
+      const url = filter
+        ? `/leads/?status=${encodeURIComponent(filter)}`
+        : "/leads/";
+      const res = await api.get(url);
+      setLeads(res.data);
+    } catch {
+      notify("Failed to load leads.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, notify]);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await api.get("/leads/stats");
+      setStats(res.data);
+    } catch {
+      notify("Failed to load lead stats.", "error");
+    }
+  }, [notify]);
 
   useEffect(() => {
     fetchLeads();
     fetchStats();
-  }, [filter]);
-
-  const fetchLeads = async () => {
-    try {
-      const url = filter ? `/leads/?status=${filter}` : "/leads/";
-      const res = await api.get(url);
-      setLeads(res.data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchStats = async () => {
-    try {
-      const res = await api.get("/leads/stats");
-      setStats(res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  }, [fetchLeads, fetchStats]);
 
   const updateStatus = async (id, status) => {
     try {
       await api.put(`/leads/${id}`, { status });
-      fetchLeads();
-      fetchStats();
-    } catch (err) {
-      console.error(err);
+      await Promise.all([fetchLeads(), fetchStats()]);
+      notify("Lead status updated.", "success");
+    } catch {
+      notify("Failed to update lead status.", "error");
     }
   };
 
@@ -57,347 +58,185 @@ export default function Leads() {
     if (!window.confirm("Remove this lead?")) return;
     try {
       await api.delete(`/leads/${id}`);
-      fetchLeads();
-    } catch (err) {
-      console.error(err);
+      await Promise.all([fetchLeads(), fetchStats()]);
+      notify("Lead removed.", "success");
+    } catch {
+      notify("Failed to remove lead.", "error");
     }
   };
+
+  const normalizeWhatsAppPhone = (phone) => {
+    const digits = String(phone || "").replace(/\D/g, "");
+    if (digits.startsWith("0")) return `92${digits.slice(1)}`;
+    return digits;
+  };
+
   const openWhatsApp = (phone, name) => {
-  const message = encodeURIComponent(
-    `Assalam o Alaikum ${name} ji, City Clinic ki taraf se message hai. ` +
-    `Aap ne hamare chatbot se appointment ki inquiry ki thi. ` +
-    `Kya aap appointment book karna chahte hain? ` +
-    `Humara number hai, reply karein ya call karein. Shukriya!`
-  );
-  window.open(`https://wa.me/${phone}?text=${message}`, "_blank");
-};
+    const whatsappPhone = normalizeWhatsAppPhone(phone);
+    if (!whatsappPhone) {
+      notify("This lead does not have a valid phone number.", "error");
+      return;
+    }
 
+    const message = encodeURIComponent(
+      `Assalam o Alaikum ${name} ji, City Clinic ki taraf se message hai. ` +
+      "Aap ne hamare chatbot se appointment ki inquiry ki thi. " +
+      "Kya aap appointment book karna chahte hain? Reply karein ya call karein. Shukriya!"
+    );
+    window.open(`https://wa.me/${whatsappPhone}?text=${message}`, "_blank");
+  };
 
-const handleImport = async (e) => {
-    const file = e.target.files[0];
+  const handleImport = async (event) => {
+    const file = event.target.files[0];
     if (!file) return;
+
     setImporting(true);
+    setImportResult(null);
+
     const formData = new FormData();
     formData.append("file", file);
-    try {
-        const res = await api.post("/leads/import", formData, {
-            headers: { "Content-Type": "multipart/form-data" }
-        });
-        setImportResult(res.data);
-        fetchLeads();
-        fetchStats();
-    } catch (err) {
-        alert("Import failed. Check your CSV format.");
-    } finally {
-        setImporting(false);
-    }
-};
 
-const downloadTemplate = () => {
-    window.open(
-        `${api.defaults.baseURL}/leads/import-template`,
-        "_blank"
-    );
-};
+    try {
+      const res = await api.post("/leads/import", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setImportResult(res.data);
+      await Promise.all([fetchLeads(), fetchStats()]);
+      notify("Patient import completed.", "success");
+    } catch (err) {
+      notify(err.response?.data?.detail || "Import failed. Check your CSV format.", "error");
+    } finally {
+      setImporting(false);
+      event.target.value = "";
+    }
+  };
+
+  const downloadTemplate = () => {
+    window.open(`${api.defaults.baseURL}/leads/import-template`, "_blank");
+  };
 
   return (
-    <div style={styles.layout}>
-      <Sidebar />
-      <div style={styles.main}>
-        <div style={styles.topBar}>
-
-          <h1 style={styles.heading}>Leads</h1>
-          <select
-            style={styles.select}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="">All Leads</option>
+    <AppLayout
+      title="Leads"
+      subtitle="Follow up with every patient captured by the chatbot."
+      actions={
+        <>
+          <select className="select" value={filter} onChange={(event) => setFilter(event.target.value)}>
+            <option value="">All leads</option>
             <option value="new">New</option>
             <option value="contacted">Contacted</option>
             <option value="converted">Converted</option>
             <option value="lost">Lost</option>
           </select>
+          <button className="btn btn-secondary" onClick={downloadTemplate}>
+            <Download size={16} />
+            Template
+          </button>
+          <label className="btn btn-primary">
+            <Upload size={16} />
+            {importing ? "Importing..." : "Import CSV"}
+            <input type="file" accept=".csv" onChange={handleImport} style={{ display: "none" }} />
+          </label>
+        </>
+      }
+    >
+      {stats && (
+        <div className="metric-grid">
+          <Metric label="Total" value={stats.total} />
+          <Metric label="New" value={stats.new} />
+          <Metric label="Converted" value={stats.converted} />
+          <Metric label="Conversion" value={stats.conversion_rate} />
         </div>
-                <div style={styles.importBox}>
-    <div>
-        <p style={styles.importTitle}>
-            📋 Import Existing Patients
-        </p>
-        <p style={styles.importSub}>
-            Upload your existing patient list as CSV.
-            Download the template first.
-        </p>
-    </div>
-    <div style={{ display: "flex", gap: "10px" }}>
-        <button
-            onClick={downloadTemplate}
-            style={styles.templateBtn}
-        >
-            ⬇ Download Template
-        </button>
-        <label style={styles.importBtn}>
-            {importing ? "Importing..." : "⬆ Upload CSV"}
-            <input
-                type="file"
-                accept=".csv"
-                onChange={handleImport}
-                style={{ display: "none" }}
-            />
-        </label>
-    </div>
-</div>
+      )}
 
-{importResult && (
-    <div style={styles.importResult}>
-        ✅ Import complete —
-        {importResult.imported} patients added,
-        {importResult.skipped} skipped (duplicates)
-    </div>
-)}
+      {importResult && (
+        <div className="demo-card" style={{ marginBottom: 16 }}>
+          <strong>Import complete:</strong> {importResult.imported} patients added,{" "}
+          {importResult.skipped} skipped.
+        </div>
+      )}
 
-        {stats && (
-          <div style={styles.statsRow}>
-            {[
-              { label: "Total", value: stats.total, color: "#2563eb" },
-              { label: "New", value: stats.new, color: "#f59e0b" },
-              { label: "Contacted", value: stats.contacted, color: "#8b5cf6" },
-              { label: "Converted", value: stats.converted, color: "#10b981" },
-              { label: "Rate", value: stats.conversion_rate, color: "#10b981" },
-            ].map((s) => (
-              <div key={s.label} style={styles.statBox}>
-                <p style={styles.statLabel}>{s.label}</p>
-                <p style={{ ...styles.statValue, color: s.color }}>
-                  {s.value}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
+      <section className="table-panel">
+        <div className="panel-header">
+          <h2>Patient inquiries</h2>
+          <span className="badge">{leads.length} visible</span>
+        </div>
 
-        <div style={styles.tableCard}>
-          {loading ? (
-            <p>Loading...</p>
-          ) : leads.length === 0 ? (
-            <p style={styles.empty}>No leads found</p>
-          ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  {["Name", "Phone", "Concern", "Status", "Date", "Action"].map(
-                    (h) => (
-                      <th key={h} style={styles.th}>
-                        {h}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {leads.map((l) => (
-                  <tr key={l.id} style={styles.tr}>
-                    <td style={styles.td}>{l.name}</td>
-                    <td style={styles.td}>{l.phone}</td>
-                    <td style={styles.td}>
-                      {l.concern
-                        ? l.concern.slice(0, 50) + "..."
-                        : "-"}
-                    </td>
-                    <td style={styles.td}>
-                      <span
-                        style={{
-                          ...styles.badge,
-                          backgroundColor:
-                            STATUS_COLORS[l.status]?.bg || "#f3f4f6",
-                          color:
-                            STATUS_COLORS[l.status]?.color || "#374151",
-                        }}
-                      >
-                        {l.status}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      {new Date(l.created_at).toLocaleDateString()}
-                    </td>
-                    <td style={{ ...styles.td, display: "flex", gap: "8px" }}>
-                      <select
-                        style={styles.statusSelect}
-                        value={l.status}
-                        onChange={(e) => updateStatus(l.id, e.target.value)}
-                      >
-                        <option value="new">New</option>
-                        <option value="contacted">Contacted</option>
-                        <option value="converted">Converted</option>
-                        <option value="lost">Lost</option>
-                      </select>
+        {loading ? (
+          <SkeletonBlock className="skeleton-table" />
+        ) : leads.length === 0 ? (
+          <EmptyState
+            title="No leads in this view"
+            description="New chatbot inquiries will appear here with patient phone numbers and follow-up status."
+          />
+        ) : (
+          <table className="responsive-table">
+            <thead>
+              <tr>
+                {["Name", "Phone", "Concern", "Status", "Date", "Actions"].map((heading) => (
+                  <th key={heading}>{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {leads.map((lead) => (
+                <tr key={lead.id}>
+                  <td data-label="Name">{lead.name}</td>
+                  <td data-label="Phone">{lead.phone}</td>
+                  <td data-label="Concern">{trimConcern(lead.concern)}</td>
+                  <td data-label="Status">
+                    <select
+                      className="select"
+                      value={lead.status}
+                      onChange={(event) => updateStatus(lead.id, event.target.value)}
+                    >
+                      <option value="new">New</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="converted">Converted</option>
+                      <option value="lost">Lost</option>
+                    </select>
+                  </td>
+                  <td data-label="Date">{new Date(lead.created_at).toLocaleDateString()}</td>
+                  <td data-label="Actions">
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                       <button
-                        onClick={() => openWhatsApp(l.phone, l.name)}
-                        style={styles.whatsappButton}
+                        className="icon-btn"
+                        onClick={() => openWhatsApp(lead.phone, lead.name)}
                         title="Send WhatsApp"
                       >
-                        💬
+                        <MessageCircle size={16} />
                       </button>
                       <button
-                        onClick={() => deleteLead(l.id)}
-                        style={styles.deleteButton}
+                        className="icon-btn btn-danger"
+                        onClick={() => deleteLead(lead.id)}
+                        title="Remove lead"
                       >
-                        ✕
+                        <Trash2 size={15} />
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </AppLayout>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div className="metric-card">
+      <div>
+        <p className="metric-label">{label}</p>
+        <p className="metric-value">{value}</p>
       </div>
     </div>
   );
 }
 
-const styles = {
-  layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" },
-  main: { marginLeft: "240px", padding: "32px", flex: 1 },
-  topBar: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "24px",
-  },
-  heading: { fontSize: "24px", fontWeight: "700", color: "#1e293b", margin: 0 },
-  select: {
-    padding: "10px 12px",
-    borderRadius: "8px",
-    border: "1px solid #d1d5db",
-    fontSize: "14px",
-    outline: "none",
-    cursor: "pointer",
-  },
-  statsRow: {
-    display: "flex",
-    gap: "16px",
-    marginBottom: "24px",
-  },
-  statBox: {
-    backgroundColor: "#fff",
-    borderRadius: "10px",
-    padding: "16px 24px",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-    minWidth: "100px",
-    textAlign: "center",
-  },
-  statLabel: {
-    fontSize: "12px",
-    color: "#6b7280",
-    margin: "0 0 4px 0",
-    textTransform: "uppercase",
-  },
-  statValue: {
-    fontSize: "22px",
-    fontWeight: "700",
-    margin: 0,
-  },
-  tableCard: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    padding: "24px",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-  },
-  empty: { color: "#9ca3af", fontSize: "14px" },
-  table: { width: "100%", borderCollapse: "collapse" },
-  th: {
-    textAlign: "left",
-    padding: "12px",
-    fontSize: "12px",
-    fontWeight: "600",
-    color: "#6b7280",
-    borderBottom: "1px solid #e5e7eb",
-    textTransform: "uppercase",
-  },
-  tr: { borderBottom: "1px solid #f3f4f6" },
-  td: { padding: "12px", fontSize: "14px", color: "#374151" },
-  badge: {
-    padding: "4px 10px",
-    borderRadius: "20px",
-    fontSize: "12px",
-    fontWeight: "600",
-  },
-  statusSelect: {
-    padding: "6px 8px",
-    borderRadius: "6px",
-    border: "1px solid #d1d5db",
-    fontSize: "13px",
-    cursor: "pointer",
-    outline: "none",
-  },
-  deleteButton: {
-    backgroundColor: "#fee2e2",
-    color: "#dc2626",
-    border: "none",
-    padding: "6px 10px",
-    borderRadius: "6px",
-    cursor: "pointer",
-    fontWeight: "700",
-  },
-  whatsappButton: {
-  backgroundColor: "#dcfce7",
-  color: "#16a34a",
-  border: "none",
-  padding: "6px 10px",
-  borderRadius: "6px",
-  cursor: "pointer",
-  fontWeight: "700",
-  fontSize: "16px",
-},
-importBox: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    padding: "16px 20px",
-    marginBottom: "20px",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "16px",
-},
-importTitle: {
-    fontSize: "14px",
-    fontWeight: "600",
-    color: "#1e293b",
-    margin: "0 0 3px 0",
-},
-importSub: {
-    fontSize: "12px",
-    color: "#64748b",
-    margin: 0,
-},
-templateBtn: {
-    backgroundColor: "#f1f5f9",
-    color: "#374151",
-    border: "none",
-    padding: "9px 16px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "13px",
-},
-importBtn: {
-    backgroundColor: "#2563eb",
-    color: "#fff",
-    border: "none",
-    padding: "9px 16px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "13px",
-},
-importResult: {
-    backgroundColor: "#f0fdf4",
-    border: "1px solid #86efac",
-    borderRadius: "8px",
-    padding: "12px 16px",
-    fontSize: "13px",
-    color: "#16a34a",
-    marginBottom: "16px",
-},
-};
+function trimConcern(concern) {
+  if (!concern) return "-";
+  return concern.length > 64 ? `${concern.slice(0, 64)}...` : concern;
+}

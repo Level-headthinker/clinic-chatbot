@@ -1,229 +1,127 @@
-import { useState, useEffect } from "react";
-import Sidebar from "../components/Sidebar";
+import { useCallback, useEffect, useState } from "react";
+import { Calendar, Clock, Plus, TrendingUp, Users } from "lucide-react";
 import api from "../api/axios";
-import { Calendar, Users, TrendingUp, Clock } from "lucide-react";
+import AppLayout from "../components/AppLayout";
+import EmptyState from "../components/EmptyState";
+import { DashboardSkeleton } from "../components/Skeleton";
+import { useToast } from "../context/ToastContext";
+import { useNavigate } from "react-router-dom";
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { notify } = useToast();
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
       const [statsRes, apptRes] = await Promise.all([
         api.get("/leads/stats"),
         api.get("/appointments/"),
       ]);
       setStats(statsRes.data);
-      setAppointments(apptRes.data);
-    } catch (err) {
-      console.error(err);
+      setAppointments(apptRes.data.slice(0, 8));
+    } catch {
+      notify("Dashboard data could not be loaded.", "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   return (
-    <div style={styles.layout}>
-      <Sidebar />
-      <div style={styles.main}>
-        <h1 style={styles.heading}>Dashboard</h1>
+    <AppLayout
+      title="Dashboard"
+      subtitle="A live overview of leads, bookings, and clinic conversion."
+      actions={
+        <button className="btn btn-primary" onClick={() => navigate("/doctors")}>
+          <Plus size={16} />
+          Add doctor
+        </button>
+      }
+    >
+      {loading ? (
+        <DashboardSkeleton />
+      ) : (
+        <>
+          <div className="metric-grid">
+            <MetricCard icon={<Users size={22} />} label="Total leads" value={stats?.total || 0} />
+            <MetricCard icon={<Clock size={22} />} label="New leads" value={stats?.new || 0} />
+            <MetricCard icon={<Calendar size={22} />} label="Appointments" value={appointments.length} />
+            <MetricCard icon={<TrendingUp size={22} />} label="Conversion" value={stats?.conversion_rate || "0%"} />
+          </div>
 
-        {loading ? (
-          <p>Loading...</p>
-        ) : (
-          <>
-            <div style={styles.grid}>
-              <StatCard
-                icon={<Users size={24} color="#2563eb" />}
-                label="Total Leads"
-                value={stats?.total || 0}
-                bg="#eff6ff"
-              />
-              <StatCard
-                icon={<Clock size={24} color="#f59e0b" />}
-                label="New Leads"
-                value={stats?.new || 0}
-                bg="#fffbeb"
-              />
-              <StatCard
-                icon={<Calendar size={24} color="#10b981" />}
-                label="Appointments"
-                value={appointments.length}
-                bg="#ecfdf5"
-              />
-              <StatCard
-                icon={<TrendingUp size={24} color="#8b5cf6" />}
-                label="Conversion Rate"
-                value={stats?.conversion_rate || "0%"}
-                bg="#f5f3ff"
-              />
+          <section className="table-panel">
+            <div className="panel-header">
+              <h2>Recent appointments</h2>
+              <button className="btn btn-secondary" onClick={() => navigate("/appointments")}>
+                View all
+              </button>
             </div>
-
-            <div style={styles.section}>
-              <h2 style={styles.sectionTitle}>Recent Appointments</h2>
-              {appointments.length === 0 ? (
-                <p style={styles.empty}>No appointments yet</p>
-              ) : (
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      {["Patient", "Phone", "Doctor", "Slot", "Status"].map(
-                        (h) => (
-                          <th key={h} style={styles.th}>
-                            {h}
-                          </th>
-                        )
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {appointments.map((a) => (
-                      <tr key={a.id} style={styles.tr}>
-                        <td style={styles.td}>{a.patient_name}</td>
-                        <td style={styles.td}>{a.patient_phone}</td>
-                        <td style={styles.td}>{a.doctor_name}</td>
-                        <td style={styles.td}>
-                          {new Date(a.slot_datetime).toLocaleString()}
-                        </td>
-                        <td style={styles.td}>
-                          <span
-                            style={{
-                              ...styles.badge,
-                              backgroundColor:
-                                a.status === "confirmed"
-                                  ? "#dcfce7"
-                                  : a.status === "cancelled"
-                                  ? "#fee2e2"
-                                  : "#fef9c3",
-                              color:
-                                a.status === "confirmed"
-                                  ? "#16a34a"
-                                  : a.status === "cancelled"
-                                  ? "#dc2626"
-                                  : "#ca8a04",
-                            }}
-                          >
-                            {a.status}
-                          </span>
-                        </td>
-                      </tr>
+            {appointments.length === 0 ? (
+              <EmptyState
+                title="No appointments yet"
+                description="Once patients confirm through the chatbot, appointments will appear here for staff follow-up."
+                action={
+                  <button className="btn btn-primary" onClick={() => navigate("/chat-preview")}>
+                    Test chatbot
+                  </button>
+                }
+              />
+            ) : (
+              <table className="responsive-table">
+                <thead>
+                  <tr>
+                    {["Patient", "Phone", "Doctor", "Slot", "Status"].map((heading) => (
+                      <th key={heading}>{heading}</th>
                     ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+                  </tr>
+                </thead>
+                <tbody>
+                  {appointments.map((appointment) => (
+                    <tr key={appointment.id}>
+                      <td data-label="Patient">{appointment.patient_name}</td>
+                      <td data-label="Phone">{appointment.patient_phone}</td>
+                      <td data-label="Doctor">{appointment.doctor_name}</td>
+                      <td data-label="Slot">
+                        {new Date(appointment.slot_datetime).toLocaleString()}
+                      </td>
+                      <td data-label="Status">
+                        <span className={`badge ${badgeClass(appointment.status)}`}>
+                          {appointment.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        </>
+      )}
+    </AppLayout>
   );
 }
 
-function StatCard({ icon, label, value, bg }) {
+function MetricCard({ icon, label, value }) {
   return (
-    <div style={{ ...styles.card, backgroundColor: bg }}>
-      <div style={styles.cardIcon}>{icon}</div>
+    <div className="metric-card">
+      <div className="metric-icon">{icon}</div>
       <div>
-        <p style={styles.cardLabel}>{label}</p>
-        <p style={styles.cardValue}>{value}</p>
+        <p className="metric-label">{label}</p>
+        <p className="metric-value">{value}</p>
       </div>
     </div>
   );
 }
 
-const styles = {
-  layout: {
-    display: "flex",
-    minHeight: "100vh",
-    backgroundColor: "#f8fafc",
-  },
-  main: {
-    marginLeft: "240px",
-    padding: "32px",
-    flex: 1,
-  },
-  heading: {
-    fontSize: "24px",
-    fontWeight: "700",
-    color: "#1e293b",
-    marginBottom: "24px",
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, 1fr)",
-    gap: "16px",
-    marginBottom: "32px",
-  },
-  card: {
-    borderRadius: "12px",
-    padding: "20px",
-    display: "flex",
-    alignItems: "center",
-    gap: "16px",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-  },
-  cardIcon: {
-    padding: "12px",
-    borderRadius: "10px",
-    backgroundColor: "#ffffff",
-  },
-  cardLabel: {
-    fontSize: "12px",
-    color: "#6b7280",
-    margin: "0 0 4px 0",
-  },
-  cardValue: {
-    fontSize: "24px",
-    fontWeight: "700",
-    color: "#1e293b",
-    margin: 0,
-  },
-  section: {
-    backgroundColor: "#ffffff",
-    borderRadius: "12px",
-    padding: "24px",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-  },
-  sectionTitle: {
-    fontSize: "16px",
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: "16px",
-  },
-  empty: {
-    color: "#9ca3af",
-    fontSize: "14px",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-  },
-  th: {
-    textAlign: "left",
-    padding: "12px",
-    fontSize: "12px",
-    fontWeight: "600",
-    color: "#6b7280",
-    borderBottom: "1px solid #e5e7eb",
-    textTransform: "uppercase",
-  },
-  tr: {
-    borderBottom: "1px solid #f3f4f6",
-  },
-  td: {
-    padding: "12px",
-    fontSize: "14px",
-    color: "#374151",
-  },
-  badge: {
-    padding: "4px 10px",
-    borderRadius: "20px",
-    fontSize: "12px",
-    fontWeight: "600",
-  },
-};
+function badgeClass(status) {
+  if (status === "confirmed" || status === "completed") return "badge-success";
+  if (status === "cancelled" || status === "no_show") return "badge-danger";
+  return "badge-warning";
+}

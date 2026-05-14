@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 import csv
 import io
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -27,27 +28,24 @@ def lead_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    total = db.query(Lead).filter(
-        Lead.tenant_id == current_user.tenant_id
-    ).count()
-    new = db.query(Lead).filter(
+    rows = db.query(
+        Lead.status,
+        func.count(Lead.id)
+    ).filter(
         Lead.tenant_id == current_user.tenant_id,
-        Lead.status == "new"
-    ).count()
-    contacted = db.query(Lead).filter(
-        Lead.tenant_id == current_user.tenant_id,
-        Lead.status == "contacted"
-    ).count()
-    converted = db.query(Lead).filter(
-        Lead.tenant_id == current_user.tenant_id,
-        Lead.status == "converted"
-    ).count()
+        Lead.is_active == True
+    ).group_by(Lead.status).all()
+
+    counts = {status: count for status, count in rows}
+    total = sum(counts.values())
+    converted = counts.get("converted", 0)
 
     return {
         "total": total,
-        "new": new,
-        "contacted": contacted,
+        "new": counts.get("new", 0),
+        "contacted": counts.get("contacted", 0),
         "converted": converted,
+        "lost": counts.get("lost", 0),
         "conversion_rate": f"{(converted/total*100):.1f}%" if total > 0 else "0%"
     }
 
@@ -90,6 +88,7 @@ def list_leads(
             "concern": l.concern,
             "status": l.status,
             "source": l.source,
+            "notes": l.notes,
             "created_at": str(l.created_at)
         }
         for l in leads
@@ -118,6 +117,8 @@ def update_lead(
                 detail=f"Status must be one of {allowed}"
             )
         lead.status = data.status
+    if data.notes is not None:
+        lead.notes = data.notes
 
     db.commit()
     return {"message": "Lead updated successfully"}

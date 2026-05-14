@@ -1,13 +1,16 @@
+import logging
 import smtplib
 import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 def send_email(to: str, subject: str, body: str):
     if not settings.MAIL_EMAIL or not settings.MAIL_PASSWORD:
-        print("Email not configured — skipping")
+        logger.info("Email is not configured; skipping notification")
         return
 
     def _send():
@@ -22,9 +25,9 @@ def send_email(to: str, subject: str, body: str):
                 server.login(settings.MAIL_EMAIL, settings.MAIL_PASSWORD)
                 server.sendmail(settings.MAIL_EMAIL, to, msg.as_string())
 
-            print(f"Email sent to {to}")
+            logger.info("Email sent to %s", to)
         except Exception as e:
-            print(f"Email failed: {e}")
+            logger.exception("Email failed: %s", e)
 
     threading.Thread(target=_send, daemon=True).start()
 

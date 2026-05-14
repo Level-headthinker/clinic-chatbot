@@ -9,7 +9,12 @@ from pydantic import BaseModel, EmailStr
 from app.database import get_db
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.services.auth import hash_password, verify_password, create_access_token
+from app.services.auth import (
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -28,6 +33,8 @@ class TokenResponse(BaseModel):
     tenant_id: str
     tenant_slug: str
     user_name: str
+    user_email: str
+    is_superadmin: bool
 
 
 @router.post("/register")
@@ -97,18 +104,38 @@ def login(
             detail="Account is disabled"
         )
 
-    token = create_access_token(data={"sub": str(user.id)})
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant or not tenant.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Clinic is disabled"
+        )
+
+    token = create_access_token(data={"sub": str(user.id)})
 
     return {
         "access_token": token,
         "token_type": "bearer",
         "tenant_id": str(user.tenant_id),
         "tenant_slug": tenant.slug,
-        "user_name": user.full_name
+        "user_name": user.full_name,
+        "user_email": user.email,
+        "is_superadmin": user.is_superadmin
     }
 
 
 @router.get("/me")
-def get_me(db: Session = Depends(get_db)):
-    return {"message": "Auth working"}
+def get_me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    return {
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role,
+        "tenant_id": str(current_user.tenant_id),
+        "tenant_slug": tenant.slug if tenant else None,
+        "is_superadmin": current_user.is_superadmin
+    }

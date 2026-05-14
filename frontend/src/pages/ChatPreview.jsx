@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import Sidebar from "../components/Sidebar";
+import { useEffect, useRef, useState } from "react";
+import { Bot, CheckCircle2, Code2, Send, ShieldCheck, Stethoscope } from "lucide-react";
 import api from "../api/axios";
-import { Send } from "lucide-react";
+import AppLayout from "../components/AppLayout";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export default function ChatPreview() {
   const [messages, setMessages] = useState([]);
@@ -11,12 +12,13 @@ export default function ChatPreview() {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
   const { user } = useAuth();
+  const { notify } = useToast();
 
   useEffect(() => {
     setMessages([
       {
-        role: "assistant",
-        content: "Hello! I am your clinic assistant. How can I help you today?",
+        role: "bot",
+        text: "Hello! I am your clinic assistant. I can answer questions, collect patient details, and help book appointments.",
       },
     ]);
   }, []);
@@ -24,295 +26,131 @@ export default function ChatPreview() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
   const sendMessage = async () => {
-  if (!input.trim() || loading) return;
+    if (!input.trim() || loading) return;
 
-  const userMessage = input.trim();
-  setInput("");
-  setMessages((prev) => [
-    ...prev,
-    { role: "user", content: userMessage },
-  ]);
-  setLoading(true);
+    const userMessage = input.trim();
+    setInput("");
+    setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
+    setLoading(true);
 
-  try {
-    const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-    const slug =
-      user?.tenant_slug ||
-      storedUser?.tenant_slug ||
-      storedUser?.tenant_id ||
-      "city-clinic";
+    try {
+      const slug = user?.tenant_slug;
+      if (!slug) {
+        notify("Clinic profile is missing. Please log in again.", "error");
+        return;
+      }
 
-    // DEBUG — check all values
-    console.log("=== CHAT DEBUG ===");
-    console.log("user from context:", user);
-    console.log("storedUser from localStorage:", storedUser);
-    console.log("slug being used:", slug);
-    console.log("API baseURL:", api.defaults.baseURL);
-    console.log("==================");
+      const response = await api.post("/chat/message", {
+        message: userMessage,
+        tenant_slug: slug,
+        session_token: sessionToken || null,
+      });
 
-    const res = await api.post("/chat/message", {
-      message: userMessage,
-      tenant_slug: slug,
-      session_token: sessionToken || null,
-    });
+      setSessionToken(response.data.session_token);
+      setMessages((prev) => [
+        ...prev,
+        { role: "bot", text: response.data.reply },
+      ]);
+    } catch {
+      notify("The chat service did not respond. Try again in a moment.", "error");
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "bot",
+          text: "Sorry, something went wrong. Please try again.",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    console.log("Response received:", res.data);
-
-    setSessionToken(res.data.session_token);
-    setMessages((prev) => [
-      ...prev,
-      { role: "assistant", content: res.data.reply },
-    ]);
-  } catch (err) {
-    console.log("=== ERROR DEBUG ===");
-    console.log("Error status:", err.response?.status);
-    console.log("Error detail:", err.response?.data);
-    console.log("Request URL:", err.config?.url);
-    console.log("Request baseURL:", err.config?.baseURL);
-    console.log("Request payload:", err.config?.data);
-    console.log("==================");
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content: "Sorry, something went wrong. Please try again.",
-      },
-    ]);
-  } finally {
-    setLoading(false);
-  }
-};
-
-//   const sendMessage = async () => {
-//   if (!input.trim() || loading) return;
-
-//   const userMessage = input.trim();
-//   setInput("");
-//   setMessages((prev) => [
-//     ...prev,
-//     { role: "user", content: userMessage },
-//   ]);
-//   setLoading(true);
-
-//   try {
-//     // Get tenant_slug from multiple sources
-//     const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-//     const slug = 
-//       user?.tenant_slug || 
-//       storedUser?.tenant_slug || 
-//       storedUser?.tenant_id ||
-//       "rimshaclinic";
-
-//     console.log("=== CHAT DEBUG ===");
-//     console.log("user from context:", user);
-//     console.log("storedUser from localStorage:", storedUser);
-//     console.log("slug being used:", slug);
-//     console.log("API baseURL:", api.defaults.baseURL);
-//     console.log("==================");
-
-//     const res = await api.post("/chat/message", {
-//       message: userMessage,
-//       tenant_slug: slug,
-//       session_token: sessionToken || null,
-//     });
-//     console.log("Response received:", res.data);
-
-//     setSessionToken(res.data.session_token);
-//     setMessages((prev) => [
-//       ...prev,
-//       { role: "assistant", content: res.data.reply },
-//     ]);
-//   } catch (err) {
-//     setMessages((prev) => [
-//       ...prev,
-//       {
-//         role: "assistant",
-//         content: "Sorry, something went wrong. Please try again.",
-//       },
-//     ]);
-//   } finally {
-//     setLoading(false);
-//   }
-// };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyDown = (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       sendMessage();
     }
   };
 
-  return (
-    <div style={styles.layout}>
-      <Sidebar />
-      <div style={styles.main}>
-        <h1 style={styles.heading}>Chat Preview</h1>
-        <p style={styles.subtitle}>
-          Test your chatbot exactly as patients will see it
-        </p>
+  const widgetUrl = `${window.location.origin}/widget.html?clinic=${user?.tenant_slug || "your-clinic"}`;
 
-        <div style={styles.chatContainer}>
-          <div style={styles.chatHeader}>
-            <div style={styles.avatar}>🏥</div>
+  return (
+    <AppLayout
+      title="Chat Preview"
+      subtitle="Test the same polished experience patients see on your website."
+    >
+      <div className="chat-preview-grid">
+        <div className="chat-phone">
+          <div className="chat-phone-header">
+            <div className="chat-avatar">
+              <Stethoscope size={22} />
+            </div>
             <div>
-              <p style={styles.botName}>ClinicBot</p>
-              <p style={styles.botStatus}>● Online</p>
+              <p className="chat-title">{user?.user_name || "Clinic"} Bot</p>
+              <p className="chat-status">Online - ready to help patients</p>
             </div>
           </div>
 
-          <div style={styles.messages}>
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                style={
-                  msg.role === "user"
-                    ? styles.userBubbleWrap
-                    : styles.botBubbleWrap
-                }
-              >
-                <div
-                  style={
-                    msg.role === "user"
-                      ? styles.userBubble
-                      : styles.botBubble
-                  }
-                >
-                  {msg.content}
-                </div>
+          <div className="chat-messages">
+            {messages.map((message, index) => (
+              <div key={index} className={`chat-bubble ${message.role}`}>
+                {message.text}
               </div>
             ))}
-            {loading && (
-              <div style={styles.botBubbleWrap}>
-                <div style={styles.botBubble}>Typing...</div>
-              </div>
-            )}
+            {loading && <div className="chat-bubble bot">Typing...</div>}
             <div ref={bottomRef} />
           </div>
 
-          <div style={styles.inputArea}>
+          <div className="chat-input-bar">
             <input
-              style={styles.input}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
+              placeholder="Ask about timings, fees, or appointments..."
               disabled={loading}
             />
-            <button
-              onClick={sendMessage}
-              style={loading ? styles.sendButtonDisabled : styles.sendButton}
-              disabled={loading}
-            >
+            <button onClick={sendMessage} disabled={loading} aria-label="Send message">
               <Send size={18} />
             </button>
           </div>
+          <div className="chat-footnote">Powered by ClinicBot AI</div>
         </div>
+
+        <aside className="preview-side">
+          <div className="demo-card">
+            <h2>Public widget confidence check</h2>
+            <p>
+              This preview now matches the embedded widget style, so clinic owners
+              can trust what patients will see before they publish it.
+            </p>
+            <div className="demo-list">
+              <span><CheckCircle2 size={17} /> Real clinic slug, no hardcoded fallback</span>
+              <span><Bot size={17} /> Same WhatsApp-style chat surface</span>
+              <span><ShieldCheck size={17} /> Patient data stays scoped to this clinic</span>
+            </div>
+          </div>
+
+          <div className="demo-card">
+            <h2>Embed link</h2>
+            <p>Use this public URL while testing website embeds.</p>
+            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              <input className="input" value={widgetUrl} readOnly style={{ flex: 1, minWidth: 0 }} />
+              <button
+                className="icon-btn"
+                onClick={() => {
+                  navigator.clipboard?.writeText(widgetUrl);
+                  notify("Widget link copied.", "success");
+                }}
+                title="Copy widget link"
+              >
+                <Code2 size={17} />
+              </button>
+            </div>
+          </div>
+        </aside>
       </div>
-    </div>
+    </AppLayout>
   );
 }
-
-const styles = {
-  layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" },
-  main: { marginLeft: "240px", padding: "32px", flex: 1 },
-  heading: { fontSize: "24px", fontWeight: "700", color: "#1e293b", marginBottom: "4px" },
-  subtitle: { color: "#6b7280", fontSize: "14px", marginBottom: "24px" },
-  chatContainer: {
-    backgroundColor: "#fff",
-    borderRadius: "16px",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-    maxWidth: "600px",
-    display: "flex",
-    flexDirection: "column",
-    height: "600px",
-    overflow: "hidden",
-  },
-  chatHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    padding: "16px 20px",
-    backgroundColor: "#1e3a5f",
-    borderRadius: "16px 16px 0 0",
-  },
-  avatar: {
-    fontSize: "28px",
-    backgroundColor: "#fff",
-    borderRadius: "50%",
-    width: "44px",
-    height: "44px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  botName: { color: "#fff", fontWeight: "600", margin: 0, fontSize: "15px" },
-  botStatus: { color: "#86efac", fontSize: "12px", margin: 0 },
-  messages: {
-    flex: 1,
-    overflowY: "auto",
-    padding: "20px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
-  botBubbleWrap: { display: "flex", justifyContent: "flex-start" },
-  userBubbleWrap: { display: "flex", justifyContent: "flex-end" },
-  botBubble: {
-    backgroundColor: "#f1f5f9",
-    color: "#1e293b",
-    padding: "12px 16px",
-    borderRadius: "16px 16px 16px 4px",
-    maxWidth: "75%",
-    fontSize: "14px",
-    lineHeight: "1.5",
-  },
-  userBubble: {
-    backgroundColor: "#2563eb",
-    color: "#fff",
-    padding: "12px 16px",
-    borderRadius: "16px 16px 4px 16px",
-    maxWidth: "75%",
-    fontSize: "14px",
-    lineHeight: "1.5",
-  },
-  inputArea: {
-    display: "flex",
-    gap: "8px",
-    padding: "16px",
-    borderTop: "1px solid #e5e7eb",
-  },
-  input: {
-    flex: 1,
-    padding: "12px 16px",
-    borderRadius: "24px",
-    border: "1px solid #d1d5db",
-    fontSize: "14px",
-    outline: "none",
-  },
-  sendButton: {
-    backgroundColor: "#2563eb",
-    color: "#fff",
-    border: "none",
-    borderRadius: "50%",
-    width: "44px",
-    height: "44px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-  },
-  sendButtonDisabled: {
-    backgroundColor: "#93c5fd",
-    color: "#fff",
-    border: "none",
-    borderRadius: "50%",
-    width: "44px",
-    height: "44px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "not-allowed",
-  },
-};

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, date
 from app.database import get_db
@@ -10,6 +10,7 @@ from app.models.patient import Patient
 from app.models.visit import VisitRecord
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.services.invoices import generate_invoice_number
 
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
@@ -23,7 +24,7 @@ class InvoiceCreate(BaseModel):
     patient_id: str
     visit_id: Optional[str] = None
     consultation_fee: int = 0
-    additional_charges: Optional[List[AdditionalCharge]] = []
+    additional_charges: List[AdditionalCharge] = Field(default_factory=list)
     payment_status: Optional[str] = "unpaid"
     payment_method: Optional[str] = None
     notes: Optional[str] = None
@@ -59,16 +60,11 @@ def create_invoice(
     ) if data.additional_charges else 0
     total = data.consultation_fee + additional_total
 
-    count = db.query(Invoice).filter(
-        Invoice.tenant_id == current_user.tenant_id
-    ).count()
-    invoice_number = f"INV-{str(current_user.tenant_id)[:6].upper()}-{count + 1:04d}"
-
     invoice = Invoice(
         tenant_id=current_user.tenant_id,
         patient_id=data.patient_id,
         visit_id=data.visit_id,
-        invoice_number=invoice_number,
+        invoice_number=generate_invoice_number(current_user.tenant_id),
         consultation_fee=data.consultation_fee,
         additional_charges=[c.dict() for c in data.additional_charges] if data.additional_charges else [],
         total_amount=total,

@@ -19,6 +19,7 @@ class User(Base):
     full_name = Column(String(255))
     role = Column(String(50), default="admin")
     is_active = Column(Boolean, default=True)
+    is_superadmin = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant", back_populates="users")

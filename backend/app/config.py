@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     MAIL_EMAIL: str = ""
     MAIL_PASSWORD: str = ""
     ADMIN_EMAIL: str = ""
-    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    CORS_ORIGINS: str
 
     @property
     def cors_origins(self) -> list[str]:

@@ -10,7 +10,6 @@ from app.database import get_db
 from app.models.doctor import Doctor
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.models.doctor import Doctor
 from app.models.appointment import Appointment
 from app.models.visit import VisitRecord
 
@@ -73,26 +72,31 @@ def list_doctors(
     current_user: User = Depends(get_current_user)
 ):
     doctors = db.query(Doctor).filter(
-    Doctor.tenant_id == current_user.tenant_id,
-    Doctor.is_active == True
-).all()
+        Doctor.tenant_id == current_user.tenant_id,
+        Doctor.is_active == True
+    ).all()
+
     return [
         {
-        "id": str(d.id),
-        "name": d.name,
-        "specialty": d.specialty,
-        "qualification": d.qualification,
-        "fee": d.fee,
-        "available_slots": d.available_slots,
-        "treatments": d.treatments or [],
-        "timings": d.timings or [],
-        "is_active": d.is_active,
-                "total_visits": db.query(VisitRecord).filter(
-            VisitRecord.doctor_id == d.id
-        ).count(),
-        "total_appointments": db.query(Appointment).filter(
-            Appointment.doctor_id == d.id
-        ).count()    
+            "id": str(d.id),
+            "name": d.name,
+            "specialty": d.specialty,
+            "qualification": d.qualification,
+            "fee": d.fee,
+            "available_slots": d.available_slots,
+            "treatments": d.treatments or [],
+            "timings": d.timings or [],
+            "is_active": d.is_active,
+            # FIX 4: Add tenant_id filter so counts are scoped to this clinic only.
+            # Previously these counted records across ALL clinics.
+            "total_visits": db.query(VisitRecord).filter(
+                VisitRecord.doctor_id == d.id,
+                VisitRecord.tenant_id == current_user.tenant_id   # ← added
+            ).count(),
+            "total_appointments": db.query(Appointment).filter(
+                Appointment.doctor_id == d.id,
+                Appointment.tenant_id == current_user.tenant_id   # ← added
+            ).count()
         }
         for d in doctors
     ]
@@ -137,6 +141,8 @@ def update_doctor(
     db.commit()
     db.refresh(doctor)
     return {"message": "Doctor updated successfully"}
+
+
 @router.delete("/{doctor_id}")
 def delete_doctor(
     doctor_id: str,

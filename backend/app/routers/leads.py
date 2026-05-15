@@ -50,8 +50,12 @@ def lead_stats(
     }
 
 
+# FIX 8: Added get_current_user dependency.
+# Previously this endpoint had no auth — anyone on the internet could download it.
 @router.get("/import-template")
-def download_template():
+def download_template(
+    current_user: User = Depends(get_current_user)   # ← added
+):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Name", "Phone", "Condition", "Last Visit", "Doctor", "Notes"])
@@ -160,7 +164,6 @@ async def import_patients(
     skipped = 0
 
     for row in reader:
-        # Handle any case variation in headers
         row_lower = {k.lower().strip(): v for k, v in row.items()}
         phone = row_lower.get("phone", "").strip()
         name = row_lower.get("name", "").strip()
@@ -170,12 +173,10 @@ async def import_patients(
             ""
         ).strip()
 
-        # Skip empty rows
         if not phone or not name:
             skipped += 1
             continue
 
-        # Skip if patient already exists
         existing = db.query(Patient).filter(
             Patient.phone == phone,
             Patient.tenant_id == current_user.tenant_id
@@ -184,7 +185,6 @@ async def import_patients(
             skipped += 1
             continue
 
-        # Save to patients table — not leads
         patient = Patient(
             tenant_id=current_user.tenant_id,
             name=name,

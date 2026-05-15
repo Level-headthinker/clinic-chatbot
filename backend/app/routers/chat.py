@@ -517,33 +517,33 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
     )
 
 
+# FIX 1: tenant_slug is now REQUIRED (not Optional).
+# Without it, any session_token could expose patient data from any clinic.
 @router.get("/session/{session_token}")
 def get_session(
     session_token: str,
-    tenant_slug: Optional[str] = None,
+    tenant_slug: str,          # ← was Optional[str] = None — now required
     db: Session = Depends(get_db)
 ):
-    query = db.query(ChatSession).filter(
-        ChatSession.session_token == session_token
-    )
-    if tenant_slug:
-        tenant = db.query(Tenant).filter(Tenant.slug == tenant_slug).first()
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Clinic not found")
-        query = query.filter(ChatSession.tenant_id == tenant.id)
+    # Always resolve and enforce the tenant
+    tenant = db.query(Tenant).filter(
+        Tenant.slug == tenant_slug,
+        Tenant.is_active == True
+    ).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Clinic not found")
 
-    session = query.first()
+    session = db.query(ChatSession).filter(
+        ChatSession.session_token == session_token,
+        ChatSession.tenant_id == tenant.id    # ← always enforced now
+    ).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    response = {
+    return {
         "session_token": session.session_token,
         "messages": session.messages,
         "language": session.language,
+        "patient_name": session.patient_name,
+        "patient_phone": session.patient_phone,
     }
-    if tenant_slug:
-        response.update({
-            "patient_name": session.patient_name,
-            "patient_phone": session.patient_phone
-        })
-    return response

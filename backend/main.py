@@ -14,8 +14,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],  # explicit, not wildcard
-    allow_headers=["Authorization", "Content-Type"],  # explicit, not wildcard
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 Base.metadata.create_all(bind=engine)
@@ -29,6 +29,7 @@ app.include_router(superadmin.router)
 app.include_router(patients.router)
 app.include_router(visits.router)
 app.include_router(billing.router)
+
 
 @app.get("/")
 def root():

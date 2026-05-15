@@ -48,12 +48,23 @@ def create_invoice(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # Verify patient belongs to this clinic
     patient = db.query(Patient).filter(
         Patient.id == data.patient_id,
         Patient.tenant_id == current_user.tenant_id
     ).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+
+    # FIX 3: Verify visit_id belongs to THIS clinic before linking.
+    # Previously, a visit from another clinic could be attached to this invoice.
+    if data.visit_id:
+        visit = db.query(VisitRecord).filter(
+            VisitRecord.id == data.visit_id,
+            VisitRecord.tenant_id == current_user.tenant_id   # ← enforces ownership
+        ).first()
+        if not visit:
+            raise HTTPException(status_code=404, detail="Visit not found")
 
     additional_total = sum(
         c.amount for c in data.additional_charges

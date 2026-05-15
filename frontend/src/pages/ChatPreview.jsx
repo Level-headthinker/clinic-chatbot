@@ -119,18 +119,6 @@ export default function ChatPreview() {
         </div>
 
         <aside className="preview-side">
-          <div className="demo-card">
-            <h2>Public widget confidence check</h2>
-            <p>
-              This preview now matches the embedded widget style, so clinic owners
-              can trust what patients will see before they publish it.
-            </p>
-            <div className="demo-list">
-              <span><CheckCircle2 size={17} /> Real clinic slug, no hardcoded fallback</span>
-              <span><Bot size={17} /> Same WhatsApp-style chat surface</span>
-              <span><ShieldCheck size={17} /> Patient data stays scoped to this clinic</span>
-            </div>
-          </div>
 
           <div className="demo-card">
             <h2>Embed link</h2>

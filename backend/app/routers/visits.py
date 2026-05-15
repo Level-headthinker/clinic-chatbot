@@ -6,6 +6,7 @@ from datetime import date
 from app.database import get_db
 from app.models.visit import VisitRecord
 from app.models.patient import Patient
+from app.models.doctor import Doctor
 from app.models.invoice import Invoice
 from app.models.user import User
 from app.services.auth import get_current_user
@@ -52,12 +53,23 @@ def create_visit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # Verify patient belongs to this clinic
     patient = db.query(Patient).filter(
         Patient.id == data.patient_id,
         Patient.tenant_id == current_user.tenant_id
     ).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+
+    # FIX 2: Verify doctor_id belongs to THIS clinic before assigning.
+    # Previously, any doctor_id from any clinic could be submitted.
+    if data.doctor_id:
+        doctor = db.query(Doctor).filter(
+            Doctor.id == data.doctor_id,
+            Doctor.tenant_id == current_user.tenant_id   # ← enforces ownership
+        ).first()
+        if not doctor:
+            raise HTTPException(status_code=404, detail="Doctor not found")
 
     visit = VisitRecord(
         tenant_id=current_user.tenant_id,
@@ -105,6 +117,7 @@ def get_patient_visits(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # Verify patient belongs to this clinic first
     patient = db.query(Patient).filter(
         Patient.id == patient_id,
         Patient.tenant_id == current_user.tenant_id
@@ -114,6 +127,7 @@ def get_patient_visits(
 
     visits = db.query(VisitRecord).filter(
         VisitRecord.patient_id == patient_id,
+        VisitRecord.tenant_id == current_user.tenant_id,   # ← added for defence-in-depth
         VisitRecord.is_active == True
     ).order_by(VisitRecord.visit_date.desc()).all()
 
@@ -191,8 +205,10 @@ def update_visit(
     if data.next_visit_date is not None: visit.next_visit_date = data.next_visit_date
     if data.fee is not None:
         visit.fee = data.fee
+        # FIX 5: Add tenant_id filter so we only touch invoices that belong to this clinic
         existing_invoice = db.query(Invoice).filter(
-            Invoice.visit_id == visit.id
+            Invoice.visit_id == visit.id,
+            Invoice.tenant_id == current_user.tenant_id   # ← added
         ).first()
         if existing_invoice:
             existing_invoice.consultation_fee = data.fee

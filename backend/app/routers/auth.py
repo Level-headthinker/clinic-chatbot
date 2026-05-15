@@ -1,11 +1,11 @@
 # Two API endpoints — register a new clinic and login.
 # Register creates the tenant and admin user together in one step.
 # Login checks credentials and returns a JWT token.
-
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from app.database import get_db
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -25,6 +25,22 @@ class RegisterRequest(BaseModel):
     admin_email: EmailStr
     admin_password: str
     admin_full_name: str
+
+    @field_validator("admin_password")
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one number")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Password must contain at least one letter")
+        return v
+
+    @field_validator("clinic_slug")
+    def slug_format(cls, v):
+        if not re.match(r"^[a-z0-9\-]+$", v):
+            raise ValueError("Slug may only contain lowercase letters, numbers, and hyphens")
+        return v
 
 
 class TokenResponse(BaseModel):

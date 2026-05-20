@@ -29,7 +29,21 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
-Base.metadata.create_all(bind=engine)
+import time
+
+def create_tables_with_retry(retries: int = 5, delay: int = 3):
+    for attempt in range(1, retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            print("✅ Database tables ready")
+            return
+        except Exception as e:
+            print(f"⚠️ DB connection attempt {attempt}/{retries} failed: {e}")
+            if attempt < retries:
+                time.sleep(delay)
+    raise RuntimeError("❌ Could not connect to database after multiple attempts")
+
+create_tables_with_retry()
 
 app.include_router(auth.router)
 app.include_router(chat.router)

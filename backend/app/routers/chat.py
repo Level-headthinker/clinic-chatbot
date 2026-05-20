@@ -12,13 +12,16 @@ from app.models.appointment import Appointment
 from app.models.chat import ChatSession, Lead
 from app.models.doctor import Doctor
 from app.models.tenant import Tenant
+from app.services.conversation_logger import log_input_flag, log_output_flag
 from app.services.email import send_booking_notification, send_lead_notification
+from app.services.input_guard import run_input_guard
 from app.services.llm import (
     detect_language,
     extract_intent,
     extract_patient_info,
     get_ai_response,
     is_emergency,
+    run_output_guard,
 )
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -30,13 +33,8 @@ CONFIRMATION_WORDS = [
     "ho jaye", "kar do", "book kar", "yes please"
 ]
 WEEKDAY_BY_NAME = {
-    "monday": 0,
-    "tuesday": 1,
-    "wednesday": 2,
-    "thursday": 3,
-    "friday": 4,
-    "saturday": 5,
-    "sunday": 6,
+    "monday": 0, "tuesday": 1, "wednesday": 2,
+    "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
 }
 SPECIALTY_KEYWORDS = {
     "cardio": ["heart", "chest", "bp", "blood pressure", "cardio"],
@@ -62,15 +60,14 @@ class MessageResponse(BaseModel):
     language: str
 
 
-def display_doctor_name(doctor: Doctor) -> str:
+def display_doctor_name(doctor):
     name = (doctor.name or "").strip()
     return name if name.lower().startswith("dr") else f"Dr. {name}"
 
 
-def get_doctors_info(doctors: list[Doctor]) -> str:
+def get_doctors_info(doctors):
     if not doctors:
         return "No doctors available at the moment."
-
     info = []
     for doctor in doctors:
         treatments = ", ".join(doctor.treatments) if doctor.treatments else "General"
@@ -82,17 +79,14 @@ def get_doctors_info(doctors: list[Doctor]) -> str:
             ])
         info.append(
             f"- {display_doctor_name(doctor)} | {doctor.specialty} | "
-            f"Treats: {treatments} | "
-            f"Fee: {doctor.fee or 'Not set'}"
-            f"{timings}"
+            f"Treats: {treatments} | Fee: {doctor.fee or 'Not set'}{timings}"
         )
     return "\n".join(info)
 
 
-def parse_time(value: Optional[str]):
+def parse_time(value):
     if not value:
         return None
-
     value = value.strip().upper().replace(".", "")
     for fmt in ("%I:%M %p", "%I %p", "%H:%M", "%H"):
         try:
@@ -102,17 +96,11 @@ def parse_time(value: Optional[str]):
     return None
 
 
-def normalize_datetime(value: datetime) -> datetime:
+def normalize_datetime(value):
     return value.replace(tzinfo=None) if value.tzinfo else value
 
 
-def generate_doctor_slots(
-    doctor: Doctor,
-    tenant_id,
-    db: Session,
-    days_ahead: int = 14,
-    max_slots: int = 3
-) -> list[datetime]:
+def generate_doctor_slots(doctor, tenant_id, db, days_ahead=14, max_slots=3):
     now = datetime.now()
     window_end = now + timedelta(days=days_ahead)
     booked_rows = db.query(Appointment.slot_datetime).filter(
@@ -122,12 +110,7 @@ def generate_doctor_slots(
         Appointment.slot_datetime >= now,
         Appointment.slot_datetime < window_end,
     ).all()
-    booked_slots = {
-        normalize_datetime(row[0])
-        for row in booked_rows
-        if row[0] is not None
-    }
-
+    booked_slots = {normalize_datetime(r[0]) for r in booked_rows if r[0]}
     slots = []
     for timing in doctor.timings or []:
         weekday = WEEKDAY_BY_NAME.get(str(timing.get("day", "")).strip().lower())
@@ -135,50 +118,43 @@ def generate_doctor_slots(
         end_time = parse_time(timing.get("to"))
         if weekday is None or not start_time or not end_time:
             continue
-
         for offset in range(days_ahead + 1):
             day = now.date() + timedelta(days=offset)
             if day.weekday() != weekday:
                 continue
-
             slot = datetime.combine(day, start_time)
             end = datetime.combine(day, end_time)
             while slot < end:
                 if slot > now and slot not in booked_slots:
                     slots.append(slot)
                 slot += timedelta(minutes=30)
-
     return sorted(slots)[:max_slots]
 
 
-def doctor_match_score(doctor: Doctor, text: str) -> int:
+def doctor_match_score(doctor, text):
     text = text.lower()
     words = set(re.findall(r"[a-z0-9]+", text))
     score = 0
-
     specialty = (doctor.specialty or "").lower()
     if specialty and specialty in text:
         score += 10
     for word in re.findall(r"[a-z0-9]+", specialty):
         if len(word) > 3 and word in words:
             score += 3
-
     for treatment in doctor.treatments or []:
-        treatment_text = str(treatment).lower()
-        if treatment_text and treatment_text in text:
+        t = str(treatment).lower()
+        if t and t in text:
             score += 8
-        for word in re.findall(r"[a-z0-9]+", treatment_text):
+        for word in re.findall(r"[a-z0-9]+", t):
             if len(word) > 3 and word in words:
                 score += 2
-
     for keyword, aliases in SPECIALTY_KEYWORDS.items():
-        if keyword in specialty and any(alias in text for alias in aliases):
+        if keyword in specialty and any(a in text for a in aliases):
             score += 5
-
     return score
 
 
-def build_booking_search_text(session: ChatSession, user_message: str) -> str:
+def build_booking_search_text(session, user_message):
     user_messages = [
         msg.get("content", "")
         for msg in (session.messages or [])[-8:]
@@ -190,98 +166,59 @@ def build_booking_search_text(session: ChatSession, user_message: str) -> str:
     return " ".join(user_messages)
 
 
-def find_booking_options(
-    doctors: list[Doctor],
-    tenant_id,
-    db: Session,
-    search_text: str,
-    max_doctors: int = 2
-) -> list[dict]:
+def find_booking_options(doctors, tenant_id, db, search_text, max_doctors=2):
     options = []
     for doctor in doctors:
         slots = generate_doctor_slots(doctor, tenant_id, db)
         if not slots:
             continue
-        options.append({
-            "doctor": doctor,
-            "slots": slots,
-            "score": doctor_match_score(doctor, search_text),
-        })
-
-    options.sort(key=lambda option: (-option["score"], option["slots"][0]))
+        options.append({"doctor": doctor, "slots": slots, "score": doctor_match_score(doctor, search_text)})
+    options.sort(key=lambda o: (-o["score"], o["slots"][0]))
     return options[:max_doctors]
 
 
-def format_slot(slot: datetime) -> str:
+def format_slot(slot):
     return slot.strftime("%A, %d %B %Y at %I:%M %p")
 
 
-def is_confirmation_message(message: str) -> bool:
-    message_lower = message.lower()
-    return any(word in message_lower for word in CONFIRMATION_WORDS)
+def is_confirmation_message(message):
+    return any(w in message.lower() for w in CONFIRMATION_WORDS)
 
 
-def booking_suggestion_reply(options: list[dict], language: str) -> str:
+def booking_suggestion_reply(options, language):
     if not options:
-        if language in ["ur", "ur-roman"]:
-            return "Filhal koi available slot nahi mil raha. Clinic se direct contact kar lein."
-        return "I could not find an available slot right now. Please contact the clinic directly."
-
-    lines = []
-    for option in options:
-        doctor = option["doctor"]
-        first_slot = option["slots"][0]
-        lines.append(f"{display_doctor_name(doctor)}: {format_slot(first_slot)}")
-
+        return ("Filhal koi available slot nahi mil raha. Clinic se direct contact kar lein."
+                if language in ["ur", "ur-roman"] else
+                "I could not find an available slot right now. Please contact the clinic directly.")
+    lines = [f"{display_doctor_name(o['doctor'])}: {format_slot(o['slots'][0])}" for o in options]
     if language in ["ur", "ur-roman"]:
-        return (
-            "Available slot: "
-            + " | ".join(lines)
-            + ". Pehla slot confirm karne ke liye yes reply kar dein."
-        )
-    return (
-        "Available slot: "
-        + " | ".join(lines)
-        + ". Reply yes to confirm the first slot."
-    )
+        return "Available slot: " + " | ".join(lines) + ". Pehla slot confirm karne ke liye yes reply kar dein."
+    return "Available slot: " + " | ".join(lines) + ". Reply yes to confirm the first slot."
 
 
-def appointment_confirmation_reply(doctor: Doctor, slot: datetime, language: str) -> str:
+def appointment_confirmation_reply(doctor, slot, language):
     if language in ["ur", "ur-roman"]:
-        return (
-            f"Done, appointment request {display_doctor_name(doctor)} ke sath "
-            f"{format_slot(slot)} ke liye save ho gayi hai. Clinic staff confirmation ke liye contact karega."
-        )
-    return (
-        f"Done, your appointment request with {display_doctor_name(doctor)} "
-        f"for {format_slot(slot)} has been saved. The clinic staff will contact you to confirm."
-    )
+        return (f"Done, appointment request {display_doctor_name(doctor)} ke sath "
+                f"{format_slot(slot)} ke liye save ho gayi hai. Clinic staff confirmation ke liye contact karega.")
+    return (f"Done, your appointment request with {display_doctor_name(doctor)} "
+            f"for {format_slot(slot)} has been saved. The clinic staff will contact you to confirm.")
 
 
-def appointment_error_reply(reason: str, language: str) -> str:
+def appointment_error_reply(reason, language):
     roman = language in ["ur", "ur-roman"]
     if reason == "missing_patient":
-        return (
-            "Appointment book karne ke liye apna naam aur phone number share kar dein."
-            if roman else
-            "Please share your name and phone number before I book an appointment."
-        )
+        return "Appointment book karne ke liye apna naam aur phone number share kar dein." if roman else \
+               "Please share your name and phone number before I book an appointment."
     if reason == "active_appointment":
-        return (
-            "Aapki pending ya confirmed appointment pehle se mojood hai."
-            if roman else
-            "You already have a pending or confirmed appointment."
-        )
+        return "Aapki pending ya confirmed appointment pehle se mojood hai." if roman else \
+               "You already have a pending or confirmed appointment."
     if reason == "no_slots":
-        return (
-            "Filhal koi available slot nahi mil raha. Clinic se direct contact kar lein."
-            if roman else
-            "I could not find an available slot right now. Please contact the clinic directly."
-        )
+        return "Filhal koi available slot nahi mil raha. Clinic se direct contact kar lein." if roman else \
+               "I could not find an available slot right now. Please contact the clinic directly."
     return "Appointment save nahi ho saki." if roman else "I could not save the appointment."
 
 
-def concern_from_session(session: ChatSession) -> str:
+def concern_from_session(session):
     for msg in reversed(session.messages or []):
         content = msg.get("content", "").strip()
         if msg.get("role") != "user" or not content:
@@ -291,98 +228,104 @@ def concern_from_session(session: ChatSession) -> str:
         if re.fullmatch(r"[\d+\-\s()]{7,}", content):
             continue
         return content[:500]
-    return (
-        session.current_intent.replace("_", " ").title()
-        if session.current_intent else
-        "General Consultation"
-    )
+    return (session.current_intent.replace("_", " ").title()
+            if session.current_intent else "General Consultation")
 
 
-def try_save_appointment(
-    session: ChatSession,
-    tenant_id,
-    db: Session,
-    tenant_name: str,
-    doctors: list[Doctor],
-    search_text: str
-) -> tuple[Optional[Appointment], Optional[Doctor], Optional[datetime], Optional[str]]:
+def try_save_appointment(session, tenant_id, db, tenant_name, doctors, search_text):
     if not session.patient_name or not session.patient_phone:
         return None, None, None, "missing_patient"
-
-    active_appointment = db.query(Appointment).filter(
+    active = db.query(Appointment).filter(
         Appointment.patient_phone == session.patient_phone,
         Appointment.tenant_id == tenant_id,
         Appointment.status.in_(BOOKED_STATUSES)
     ).first()
-    if active_appointment:
+    if active:
         return None, None, None, "active_appointment"
-
     options = find_booking_options(doctors, tenant_id, db, search_text, max_doctors=1)
     if not options:
         return None, None, None, "no_slots"
-
     doctor = options[0]["doctor"]
     slot = options[0]["slots"][0]
     appointment = Appointment(
-        tenant_id=tenant_id,
-        doctor_id=doctor.id,
-        patient_name=session.patient_name,
-        patient_phone=session.patient_phone,
-        patient_concern=concern_from_session(session),
-        slot_datetime=slot,
-        status="pending"
+        tenant_id=tenant_id, doctor_id=doctor.id,
+        patient_name=session.patient_name, patient_phone=session.patient_phone,
+        patient_concern=concern_from_session(session), slot_datetime=slot, status="pending"
     )
     db.add(appointment)
-
     send_booking_notification(
-        patient_name=session.patient_name,
-        patient_phone=session.patient_phone,
+        patient_name=session.patient_name, patient_phone=session.patient_phone,
         patient_concern=appointment.patient_concern or "General",
-        doctor_name=doctor.name,
-        slot=format_slot(slot),
-        clinic_name=tenant_name
+        doctor_name=doctor.name, slot=format_slot(slot), clinic_name=tenant_name
     )
     return appointment, doctor, slot, None
 
 
-def try_save_lead(session: ChatSession, tenant_id, db: Session, tenant_name: str):
+def try_save_lead(session, tenant_id, db, tenant_name):
     if not session.patient_name or not session.patient_phone:
         return
-
     existing = db.query(Lead).filter(
-        Lead.phone == session.patient_phone,
-        Lead.tenant_id == tenant_id
+        Lead.phone == session.patient_phone, Lead.tenant_id == tenant_id
     ).first()
     if existing:
         return
-
     lead = Lead(
-        tenant_id=tenant_id,
-        name=session.patient_name,
-        phone=session.patient_phone,
-        concern=concern_from_session(session),
-        source="chatbot",
-        status="new"
+        tenant_id=tenant_id, name=session.patient_name, phone=session.patient_phone,
+        concern=concern_from_session(session), source="chatbot", status="new"
     )
     db.add(lead)
-
     send_lead_notification(
-        patient_name=session.patient_name,
-        patient_phone=session.patient_phone,
-        concern=lead.concern or "General Inquiry",
-        clinic_name=tenant_name
+        patient_name=session.patient_name, patient_phone=session.patient_phone,
+        concern=lead.concern or "General Inquiry", clinic_name=tenant_name
     )
 
+
+# ════════════════════════════════════════════════════════════
+# MAIN CHAT ENDPOINT
+# Phases 1 + 2 + 4 all active in this single function
+# ════════════════════════════════════════════════════════════
 
 @router.post("/message", response_model=MessageResponse)
 def send_message(data: MessageRequest, db: Session = Depends(get_db)):
+
+    # ── PHASE 1: INPUT GUARD ─────────────────────────────────
+    guard_key = data.session_token or f"pre-session:{data.tenant_slug}"
+    guard = run_input_guard(data.message, guard_key)
+
+    if not guard.allowed:
+        lang = detect_language(data.message)
+
+        # ── PHASE 4: LOG INPUT BLOCK ─────────────────────────
+        if guard.should_log:
+            log_input_flag(
+                db=db,
+                flag_type=guard.flag or "unknown",
+                flagged_message=guard.sanitized_message,
+                blocked_reason=guard.blocked_reason,
+                session_token=data.session_token,
+                tenant_id=None,
+            )
+
+        reply = (
+            f"معذرت — {guard.blocked_reason}"
+            if lang in ["ur", "ur-roman"]
+            else guard.blocked_reason or "I cannot process that message."
+        )
+        return MessageResponse(
+            session_token=data.session_token or "",
+            reply=reply, intent="blocked", language=lang
+        )
+
+    clean_message = guard.sanitized_message
+
+    # ── Resolve tenant ───────────────────────────────────────
     tenant = db.query(Tenant).filter(
-        Tenant.slug == data.tenant_slug,
-        Tenant.is_active == True
+        Tenant.slug == data.tenant_slug, Tenant.is_active == True
     ).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Clinic not found")
 
+    # ── Resolve or create session ────────────────────────────
     session = None
     if data.session_token:
         session = db.query(ChatSession).filter(
@@ -395,14 +338,14 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
             tenant_id=tenant.id,
             session_token=str(uuid.uuid4()),
             messages=[],
-            language=detect_language(data.message)
+            language=detect_language(clean_message)
         )
         db.add(session)
         db.flush()
 
     if not session.patient_name or not session.patient_phone:
         current_messages = list(session.messages or [])
-        current_messages.append({"role": "user", "content": data.message})
+        current_messages.append({"role": "user", "content": clean_message})
         info = extract_patient_info(current_messages)
         if info["name"] and not session.patient_name:
             session.patient_name = info["name"]
@@ -413,92 +356,102 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
     visit_count = 0
     if session.patient_phone:
         from app.models.patient import Patient
-
-        prev_appointments = db.query(Appointment).filter(
+        prev = db.query(Appointment).filter(
             Appointment.patient_phone == session.patient_phone,
             Appointment.tenant_id == tenant.id
         ).count()
-
         existing_patient = db.query(Patient).filter(
             Patient.phone == session.patient_phone,
             Patient.tenant_id == tenant.id
         ).first()
-
-        is_returning = prev_appointments > 0 or existing_patient is not None
-        visit_count = prev_appointments
+        is_returning = prev > 0 or existing_patient is not None
+        visit_count = prev
         if existing_patient and not session.patient_name:
             session.patient_name = existing_patient.name
 
     doctors = db.query(Doctor).filter(
-        Doctor.tenant_id == tenant.id,
-        Doctor.is_active == True
+        Doctor.tenant_id == tenant.id, Doctor.is_active == True
     ).all()
 
     clinic_info = (
-        f"Clinic Name: {tenant.name}\n"
-        f"Bot Name: {tenant.bot_name}\n"
+        f"Clinic Name: {tenant.name}\nBot Name: {tenant.bot_name}\n"
         f"Welcome Message: {tenant.welcome_message}\n"
-        f"Clinic Timings: Monday to Saturday, 9am to 9pm\n"
-        f"Emergency: Call 1122"
+        f"Clinic Timings: Monday to Saturday, 9am to 9pm\nEmergency: Call 1122"
     )
-    doctors_info = get_doctors_info(doctors)
 
-    user_confirmed = is_confirmation_message(data.message)
-    intent = extract_intent(data.message)
+    user_confirmed = is_confirmation_message(clean_message)
+    intent = extract_intent(clean_message)
     if intent == "general" and user_confirmed and session.current_intent:
         intent = session.current_intent
 
-    language = detect_language(data.message)
+    language = detect_language(clean_message)
     if language != "en" or session.language == "en":
         session.language = language
     session.current_intent = intent
 
-    ai_reply = get_ai_response(
-        user_message=data.message,
+    # ── PHASE 2: AI RESPONSE (hardened prompt + output guard) ─
+    raw_ai_reply = get_ai_response(
+        user_message=clean_message,
         conversation_history=session.messages or [],
         bot_name=tenant.bot_name,
         clinic_info=clinic_info,
-        doctors_info=doctors_info,
+        doctors_info=get_doctors_info(doctors),
         patient_name=session.patient_name or "Not collected yet",
         patient_phone=session.patient_phone or "Not collected yet",
         is_returning=is_returning,
         visit_count=visit_count
     )
 
+    safe_reply = run_output_guard(raw_ai_reply, clean_message, language)
+
+    # ── PHASE 4: LOG OUTPUT INTERCEPTIONS ────────────────────
+    if safe_reply != raw_ai_reply:
+        if is_emergency(clean_message):
+            out_flag = "emergency_override"
+        elif any(p in raw_ai_reply.lower() for p in ["probably have", "sounds like", "take 500mg"]):
+            out_flag = "medical_advice"
+        elif any(p in raw_ai_reply.lower() for p in ["here are the patients", "patient 1:"]):
+            out_flag = "patient_leak"
+        else:
+            out_flag = "output_intercepted"
+
+        log_output_flag(
+            db=db,
+            flag_type=out_flag,
+            flagged_message=clean_message,
+            intercepted_response=raw_ai_reply,
+            safe_response=safe_reply,
+            session_token=session.session_token,
+            tenant_id=tenant.id,
+        )
+
+    ai_reply = safe_reply
+
     messages = list(session.messages or [])
-    messages.append({"role": "user", "content": data.message})
+    messages.append({"role": "user", "content": clean_message})
     messages.append({"role": "assistant", "content": ai_reply})
     session.messages = messages
 
     try_save_lead(session, tenant.id, db, tenant.name)
 
-    booking_text = build_booking_search_text(session, data.message)
-    if (
-        intent == "book_appointment"
-        and not user_confirmed
-        and session.patient_name
-        and session.patient_phone
-        and not is_emergency(data.message)
-    ):
+    booking_text = build_booking_search_text(session, clean_message)
+    if (intent == "book_appointment" and not user_confirmed
+            and session.patient_name and session.patient_phone
+            and not is_emergency(clean_message)):
         options = find_booking_options(doctors, tenant.id, db, booking_text)
         ai_reply = f"{ai_reply}\n\n{booking_suggestion_reply(options, language)}"
         messages[-1] = {"role": "assistant", "content": ai_reply}
         session.messages = messages
 
-    if user_confirmed and intent == "book_appointment" and not is_emergency(data.message):
+    if user_confirmed and intent == "book_appointment" and not is_emergency(clean_message):
         appointment, doctor, slot, error = try_save_appointment(
-            session=session,
-            tenant_id=tenant.id,
-            db=db,
-            tenant_name=tenant.name,
-            doctors=doctors,
-            search_text=booking_text
+            session=session, tenant_id=tenant.id, db=db,
+            tenant_name=tenant.name, doctors=doctors, search_text=booking_text
         )
         if appointment and doctor and slot:
             ai_reply = appointment_confirmation_reply(doctor, slot, language)
             lead = db.query(Lead).filter(
-                Lead.phone == session.patient_phone,
-                Lead.tenant_id == tenant.id
+                Lead.phone == session.patient_phone, Lead.tenant_id == tenant.id
             ).first()
             if lead:
                 lead.status = "converted"
@@ -508,38 +461,25 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
         session.messages = messages
 
     db.commit()
-
     return MessageResponse(
         session_token=session.session_token,
-        reply=ai_reply,
-        intent=intent,
-        language=language
+        reply=ai_reply, intent=intent, language=language
     )
 
 
-# FIX 1: tenant_slug is now REQUIRED (not Optional).
-# Without it, any session_token could expose patient data from any clinic.
 @router.get("/session/{session_token}")
-def get_session(
-    session_token: str,
-    tenant_slug: str,          # ← was Optional[str] = None — now required
-    db: Session = Depends(get_db)
-):
-    # Always resolve and enforce the tenant
+def get_session(session_token: str, tenant_slug: str, db: Session = Depends(get_db)):
     tenant = db.query(Tenant).filter(
-        Tenant.slug == tenant_slug,
-        Tenant.is_active == True
+        Tenant.slug == tenant_slug, Tenant.is_active == True
     ).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Clinic not found")
-
     session = db.query(ChatSession).filter(
         ChatSession.session_token == session_token,
-        ChatSession.tenant_id == tenant.id    # ← always enforced now
+        ChatSession.tenant_id == tenant.id
     ).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-
     return {
         "session_token": session.session_token,
         "messages": session.messages,

@@ -106,7 +106,7 @@ def main():
 
     project_data = scan_project(root_path)
 
-    output_file = "project_snapshot.json"
+    output_file = "project_snapshot1.json"
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(project_data, f, indent=2, ensure_ascii=False)
 

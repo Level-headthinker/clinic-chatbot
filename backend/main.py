@@ -2,7 +2,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
-from app.routers import auth, chat, doctors, appointments, leads, superadmin, patients, visits, billing
+
+# Import all models so create_all sees them
+from app.models import (  # noqa: F401
+    appointment, chat, doctor, invoice,
+    patient, tenant, user, visit
+)
+from app.models.flagged_log import FlaggedLog  # noqa: F401 — Phase 4
+
+from app.routers import (
+    auth, chat, doctors, appointments,
+    leads, superadmin, patients, visits, billing
+)
 
 app = FastAPI(
     title="Clinic Chatbot API",

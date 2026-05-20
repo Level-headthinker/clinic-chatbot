@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, field_validator
+from typing import Optional
 from app.database import get_db
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -27,6 +28,7 @@ class RegisterRequest(BaseModel):
     admin_full_name: str
 
     @field_validator("admin_password")
+    @classmethod
     def password_strength(cls, v):
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long")
@@ -37,6 +39,7 @@ class RegisterRequest(BaseModel):
         return v
 
     @field_validator("clinic_slug")
+    @classmethod
     def slug_format(cls, v):
         if not re.match(r"^[a-z0-9\-]+$", v):
             raise ValueError("Slug may only contain lowercase letters, numbers, and hyphens")
@@ -53,25 +56,29 @@ class TokenResponse(BaseModel):
     is_superadmin: bool
 
 
+class MeResponse(BaseModel):
+    id: str
+    email: str
+    full_name: str
+    role: str
+    tenant_id: str
+    tenant_slug: Optional[str]
+    is_superadmin: bool
+
+
 @router.post("/register")
 def register(data: RegisterRequest, db: Session = Depends(get_db)):
     existing = db.query(Tenant).filter(
         Tenant.slug == data.clinic_slug
     ).first()
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Clinic slug already taken"
-        )
+        raise HTTPException(status_code=400, detail="Clinic slug already taken")
 
     existing_user = db.query(User).filter(
         User.email == data.admin_email
     ).first()
     if existing_user:
-        raise HTTPException(
-            status_code=400,
-            detail="Email already registered"
-        )
+        raise HTTPException(status_code=400, detail="Email already registered")
 
     tenant = Tenant(
         name=data.clinic_name,
@@ -104,9 +111,7 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    user = db.query(User).filter(
-        User.email == form_data.username
-    ).first()
+    user = db.query(User).filter(User.email == form_data.username).first()
 
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -115,10 +120,7 @@ def login(
         )
 
     if not user.is_active:
-        raise HTTPException(
-            status_code=400,
-            detail="Account is disabled"
-        )
+        raise HTTPException(status_code=400, detail="Account is disabled")
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     if not tenant or not tenant.is_active:
@@ -140,18 +142,18 @@ def login(
     }
 
 
-@router.get("/me")
+@router.get("/me", response_model=MeResponse)
 def get_me(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-    return {
-        "id": str(current_user.id),
-        "email": current_user.email,
-        "full_name": current_user.full_name,
-        "role": current_user.role,
-        "tenant_id": str(current_user.tenant_id),
-        "tenant_slug": tenant.slug if tenant else None,
-        "is_superadmin": current_user.is_superadmin
-    }
+    return MeResponse(
+        id=str(current_user.id),
+        email=current_user.email,
+        full_name=current_user.full_name,
+        role=current_user.role,
+        tenant_id=str(current_user.tenant_id),
+        tenant_slug=tenant.slug if tenant else None,
+        is_superadmin=current_user.is_superadmin
+    )

@@ -2,7 +2,7 @@
 # it gets saved here.
 # The clinic admin sees all bookings in their dashboard from this table.
 
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -24,6 +24,17 @@ class Appointment(Base):
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "uq_active_appointment_slot",
+            "tenant_id",
+            "doctor_id",
+            "slot_datetime",
+            unique=True,
+            postgresql_where=status.in_(["pending", "confirmed"]),
+        ),
+    )
 
     tenant = relationship("Tenant", back_populates="appointments")
     doctor = relationship("Doctor", back_populates="appointments")

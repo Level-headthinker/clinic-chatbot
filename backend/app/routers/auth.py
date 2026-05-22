@@ -2,12 +2,15 @@
 # Register creates the tenant and admin user together in one step.
 # Login checks credentials and returns a JWT token.
 import re
-from fastapi import APIRouter, Depends, HTTPException, status
+import time
+from collections import defaultdict
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from app.database import get_db
+from app.config import settings
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import (
@@ -18,6 +21,28 @@ from app.services.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+_auth_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def _client_key(request: Request, suffix: str) -> str:
+    host = request.client.host if request.client else "unknown"
+    return f"{host}:{suffix}"
+
+
+def _enforce_rate_limit(key: str, max_attempts: int, window_seconds: int):
+    now = time.time()
+    cutoff = now - window_seconds
+    attempts = [t for t in _auth_attempts[key] if t > cutoff]
+    if attempts:
+        _auth_attempts[key] = attempts
+    else:
+        _auth_attempts.pop(key, None)
+    if len(attempts) >= max_attempts:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Please try again later."
+        )
+    _auth_attempts[key].append(now)
 
 
 class RegisterRequest(BaseModel):
@@ -67,7 +92,16 @@ class MeResponse(BaseModel):
 
 
 @router.post("/register")
-def register(data: RegisterRequest, db: Session = Depends(get_db)):
+def register(
+    data: RegisterRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    _enforce_rate_limit(
+        _client_key(request, "register"),
+        max_attempts=5,
+        window_seconds=3600,
+    )
     existing = db.query(Tenant).filter(
         Tenant.slug == data.clinic_slug
     ).first()
@@ -108,9 +142,16 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(
+    request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
+    _enforce_rate_limit(
+        _client_key(request, f"login:{form_data.username.lower()}"),
+        max_attempts=10,
+        window_seconds=300,
+    )
     user = db.query(User).filter(User.email == form_data.username).first()
 
     if not user or not verify_password(form_data.password, user.hashed_password):
@@ -130,6 +171,14 @@ def login(
         )
 
     token = create_access_token(data={"sub": str(user.id)})
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="none" if request.url.scheme == "https" else "lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
 
     return {
         "access_token": token,
@@ -140,6 +189,16 @@ def login(
         "user_email": user.email,
         "is_superadmin": user.is_superadmin
     }
+
+
+@router.post("/logout")
+def logout(request: Request, response: Response):
+    response.delete_cookie(
+        "access_token",
+        secure=request.url.scheme == "https",
+        samesite="none" if request.url.scheme == "https" else "lax",
+    )
+    return {"message": "Logged out"}
 
 
 @router.get("/me", response_model=MeResponse)

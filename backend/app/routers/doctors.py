@@ -9,7 +9,7 @@ from typing import Optional, List
 from app.database import get_db
 from app.models.doctor import Doctor
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import require_admin_user
 from app.models.appointment import Appointment
 from app.models.visit import VisitRecord
 
@@ -44,7 +44,7 @@ class DoctorUpdate(BaseModel):
 def add_doctor(
     data: DoctorCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     doctor = Doctor(
         tenant_id=current_user.tenant_id,
@@ -69,7 +69,7 @@ def add_doctor(
 @router.get("/")
 def list_doctors(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     doctors = db.query(Doctor).filter(
         Doctor.tenant_id == current_user.tenant_id,
@@ -107,7 +107,7 @@ def update_doctor(
     doctor_id: str,
     data: DoctorUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     doctor = db.query(Doctor).filter(
         Doctor.id == doctor_id,
@@ -147,7 +147,7 @@ def update_doctor(
 def delete_doctor(
     doctor_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     doctor = db.query(Doctor).filter(
         Doctor.id == doctor_id,

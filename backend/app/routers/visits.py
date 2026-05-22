@@ -9,7 +9,7 @@ from app.models.patient import Patient
 from app.models.doctor import Doctor
 from app.models.invoice import Invoice
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import require_admin_user
 from app.services.invoices import generate_invoice_number
 
 router = APIRouter(prefix="/visits", tags=["Visits"])
@@ -33,7 +33,7 @@ class VisitCreate(BaseModel):
     test_results: Optional[str] = None
     doctor_notes: Optional[str] = None
     next_visit_date: Optional[date] = None
-    fee: Optional[int] = 0
+    fee: Optional[int] = Field(default=0, ge=0)
 
 
 class VisitUpdate(BaseModel):
@@ -44,14 +44,14 @@ class VisitUpdate(BaseModel):
     test_results: Optional[str] = None
     doctor_notes: Optional[str] = None
     next_visit_date: Optional[date] = None
-    fee: Optional[int] = None
+    fee: Optional[int] = Field(default=None, ge=0)
 
 
 @router.post("/")
 def create_visit(
     data: VisitCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     # Verify patient belongs to this clinic
     patient = db.query(Patient).filter(
@@ -115,7 +115,7 @@ def create_visit(
 def get_patient_visits(
     patient_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     # Verify patient belongs to this clinic first
     patient = db.query(Patient).filter(
@@ -153,7 +153,7 @@ def get_patient_visits(
 def get_visit(
     visit_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     visit = db.query(VisitRecord).filter(
         VisitRecord.id == visit_id,
@@ -184,7 +184,7 @@ def update_visit(
     visit_id: str,
     data: VisitUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     visit = db.query(VisitRecord).filter(
         VisitRecord.id == visit_id,

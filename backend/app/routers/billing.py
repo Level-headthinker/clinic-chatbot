@@ -1,52 +1,51 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Literal, Optional, List
 from datetime import datetime, date
 from app.database import get_db
 from app.models.invoice import Invoice
 from app.models.patient import Patient
 from app.models.visit import VisitRecord
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import require_admin_user
 from app.services.invoices import generate_invoice_number
 
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
 
+PaymentStatus = Literal["unpaid", "partial", "paid"]
+
+
 class AdditionalCharge(BaseModel):
     description: str
-    amount: int
+    amount: int = Field(ge=0)
 
 
 class InvoiceCreate(BaseModel):
     patient_id: str
     visit_id: Optional[str] = None
-    consultation_fee: int = 0
+    consultation_fee: int = Field(default=0, ge=0)
     additional_charges: List[AdditionalCharge] = Field(default_factory=list)
-    payment_status: Optional[str] = "unpaid"
+    payment_status: Optional[PaymentStatus] = "unpaid"
     payment_method: Optional[str] = None
     notes: Optional[str] = None
 
 
 class PaymentUpdate(BaseModel):
-    paid_amount: int
+    paid_amount: int = Field(ge=0)
     payment_method: Optional[str] = None
-    payment_status: Optional[str] = None
+    payment_status: Optional[PaymentStatus] = None
     notes: Optional[str] = None
-
-
-class AddCharge(BaseModel):
-    description: str
-    amount: int
 
 
 @router.post("/")
 def create_invoice(
     data: InvoiceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     # Verify patient belongs to this clinic
     patient = db.query(Patient).filter(
@@ -100,7 +99,7 @@ def create_invoice(
 def list_invoices(
     payment_status: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     query = db.query(Invoice).filter(
         Invoice.tenant_id == current_user.tenant_id,
@@ -134,7 +133,7 @@ def list_invoices(
 @router.get("/stats")
 def billing_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     today = date.today()
 
@@ -188,7 +187,7 @@ def billing_stats(
 def get_invoice(
     invoice_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     invoice = db.query(Invoice).filter(
         Invoice.id == invoice_id,
@@ -219,7 +218,7 @@ def update_payment(
     invoice_id: str,
     data: PaymentUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     invoice = db.query(Invoice).filter(
         Invoice.id == invoice_id,
@@ -241,6 +240,11 @@ def update_payment(
     else:
         invoice.payment_status = "unpaid"
 
+    if data.payment_status == "paid" and data.paid_amount < invoice.total_amount:
+        raise HTTPException(
+            status_code=400,
+            detail="Paid status requires paid amount to cover the total"
+        )
     if data.payment_status:
         invoice.payment_status = data.payment_status
 
@@ -255,9 +259,9 @@ def update_payment(
 @router.post("/{invoice_id}/charges")
 def add_charge(
     invoice_id: str,
-    data: AddCharge,
+    data: AdditionalCharge,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     invoice = db.query(Invoice).filter(
         Invoice.id == invoice_id,
@@ -269,7 +273,6 @@ def add_charge(
     charges = list(invoice.additional_charges or [])
     charges.append({"description": data.description, "amount": data.amount})
 
-    from sqlalchemy.orm.attributes import flag_modified
     invoice.additional_charges = charges
     flag_modified(invoice, "additional_charges")
 
@@ -288,7 +291,7 @@ def add_charge(
 def delete_invoice(
     invoice_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     invoice = db.query(Invoice).filter(
         Invoice.id == invoice_id,

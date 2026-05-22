@@ -9,10 +9,9 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const loadUser = async () => {
-      const token = localStorage.getItem("token");
       const savedUser = localStorage.getItem("user");
 
-      if (!token || !savedUser) {
+      if (!savedUser) {
         setLoading(false);
         return;
       }
@@ -60,7 +59,6 @@ export const AuthProvider = ({ children }) => {
     });
 
     const {
-      access_token,
       tenant_id,
       tenant_slug,
       user_name,
@@ -76,15 +74,18 @@ export const AuthProvider = ({ children }) => {
       is_superadmin,
     };
 
-    localStorage.setItem("token", access_token);
     localStorage.setItem("user", JSON.stringify(loggedInUser));
     setUser(loggedInUser);
     return response.data;
   };
 
-  const logout = () => {
-    localStorage.clear();
-    setUser(null);
+  const logout = async () => {
+    try {
+      await api.post("/auth/logout");
+    } finally {
+      localStorage.clear();
+      setUser(null);
+    }
   };
 
   return (

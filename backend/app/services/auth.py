@@ -4,7 +4,7 @@ import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -13,7 +13,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.user import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 
 def hash_password(password: str) -> str:
@@ -46,7 +46,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
     credentials_exception = HTTPException(
@@ -54,6 +55,10 @@ def get_current_user(
         detail="Invalid credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    token = token or request.cookies.get("access_token")
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(
             token,
@@ -74,3 +79,12 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def require_admin_user(current_user: User = Depends(get_current_user)):
+    if current_user.is_superadmin or current_user.role in ("admin", "superadmin"):
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin access required",
+    )

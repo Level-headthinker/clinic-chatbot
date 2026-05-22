@@ -45,7 +45,7 @@ class OutputGuardConfig:
     MAX_RESPONSE_LENGTH = 800
 
     # Truncation suffix added when a response is cut
-    TRUNCATION_SUFFIX = "... [للمزيد، براہ کرم کلینک سے رابطہ کریں / Please contact the clinic for more details.]"
+    TRUNCATION_SUFFIX = "... [براہ کرم مزید معلومات کے لیے کلینک سے رابطہ کریں / Please contact the clinic for more details.]"
 
     # Disclaimer appended when health-adjacent language is detected
     # but the response does NOT cross into forbidden advice territory
@@ -145,8 +145,10 @@ _MEDICAL_ADVICE_PATTERNS = [
     (r"\b(panadol|paracetamol|ibuprofen|amoxicillin|metformin|insulin|aspirin|omeprazole)\b", "named_medicine"),
 
     # Diagnosis language
+    (r"\b(you\s+probably\s+have|you\s+likely\s+have)\s+\w+", "diagnosis"),
     (r"\b(you\s+(have|may\s+have|might\s+have|are\s+suffering\s+from))\s+\w+", "diagnosis"),
     (r"\b(it\s+(sounds|seems|looks)\s+like\s+(you\s+have|a\s+case\s+of))\b", "diagnosis"),
+    (r"\b(this\s+(sounds|seems|looks)\s+like\s+(a|an)?\s*\w+)", "diagnosis"),
     (r"\byour\s+(condition|symptoms?|problem)\s+(is|are|suggest)\b", "diagnosis"),
 
     # Telling patient symptoms are fine / not serious
@@ -167,6 +169,24 @@ _COMPILED_MEDICAL = [
     (re.compile(p, re.IGNORECASE), flag)
     for p, flag in _MEDICAL_ADVICE_PATTERNS
 ]
+
+_PATIENT_LEAK_PATTERNS = [
+    (r"\bhere\s+are\s+the\s+patients?\b", "patient_list"),
+    (r"\bpatients?\s*:\s*[\w\s,.-]+", "patient_list"),
+    (r"\bpatient\s+\d+\s*:", "patient_enumeration"),
+    (r"\b(list|show|share)\s+(all\s+)?patients?\b", "patient_list"),
+]
+
+_COMPILED_PATIENT_LEAKS = [
+    (re.compile(p, re.IGNORECASE), flag)
+    for p, flag in _PATIENT_LEAK_PATTERNS
+]
+
+_PATIENT_LEAK_OVERRIDE = {
+    "en": "I cannot share patient information. This is confidential.",
+    "ur": "میں مریضوں کی معلومات شیئر نہیں کر سکتا۔ یہ خفیہ ہے۔",
+    "ur-roman": "Main patient information share nahi kar sakta. Yeh confidential hai.",
+}
 
 # Safe fallback when medical advice is detected
 _MEDICAL_OVERRIDE = {
@@ -199,6 +219,21 @@ def check_medical_advice(response: str, language: str) -> Optional[GuardedOutput
                 was_modified=True,
                 modification_reason=f"Medical advice detected: {flag}",
                 flag=f"medical_advice:{flag}",
+                should_log=True
+            )
+    return None
+
+
+def check_patient_leak(response: str, language: str) -> Optional[GuardedOutput]:
+    """Replace any response that appears to expose patient records."""
+    for pattern, flag in _COMPILED_PATIENT_LEAKS:
+        if pattern.search(response):
+            lang = language if language in _PATIENT_LEAK_OVERRIDE else "en"
+            return GuardedOutput(
+                final_response=_PATIENT_LEAK_OVERRIDE[lang],
+                was_modified=True,
+                modification_reason=f"Patient data leak detected: {flag}",
+                flag="patient_leak",
                 should_log=True
             )
     return None
@@ -360,7 +395,12 @@ def run_output_guard(
     if medical_result:
         return medical_result
 
-    # Step 4 — length cap (run on potentially clean response)
+    # Step 4 — patient data leak replacement
+    patient_leak_result = check_patient_leak(response, language)
+    if patient_leak_result:
+        return patient_leak_result
+
+    # Step 5 — length cap (run on potentially clean response)
     length_result = check_length(response)
     if length_result:
         # After truncation, re-run disclaimer check on the shorter text
@@ -378,7 +418,7 @@ def run_output_guard(
             )
         return length_result
 
-    # Step 5 — disclaimer injection (on full, clean response)
+    # Step 6 — disclaimer injection (on full, clean response)
     disclaimer_result = inject_disclaimer(response, language)
     if disclaimer_result:
         return disclaimer_result

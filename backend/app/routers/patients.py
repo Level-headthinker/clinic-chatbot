@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -6,7 +7,7 @@ from app.database import get_db
 from app.models.patient import Patient
 from app.models.visit import VisitRecord
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import require_admin_user
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
@@ -36,7 +37,7 @@ class PatientUpdate(BaseModel):
 def create_patient(
     data: PatientCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     existing = db.query(Patient).filter(
         Patient.phone == data.phone,
@@ -72,7 +73,7 @@ def create_patient(
 def list_patients(
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     query = db.query(Patient).filter(
         Patient.tenant_id == current_user.tenant_id,
@@ -84,6 +85,15 @@ def list_patients(
             (Patient.phone.ilike(f"%{search}%"))
         )
     patients = query.order_by(Patient.created_at.desc()).all()
+    if not patients:
+        return []
+
+    visit_counts = dict(
+        db.query(VisitRecord.patient_id, func.count(VisitRecord.id))
+        .filter(VisitRecord.tenant_id == current_user.tenant_id)
+        .group_by(VisitRecord.patient_id)
+        .all()
+    )
 
     return [
         {
@@ -96,7 +106,7 @@ def list_patients(
             "allergies": p.allergies,
             "chronic_conditions": p.chronic_conditions,
             "emergency_contact": p.emergency_contact,
-            "total_visits": len(p.visit_records),
+            "total_visits": visit_counts.get(p.id, 0),
             "created_at": str(p.created_at)
         }
         for p in patients
@@ -107,7 +117,7 @@ def list_patients(
 def lookup_patient(
     phone: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     patient = db.query(Patient).filter(
         Patient.phone == phone,
@@ -117,7 +127,8 @@ def lookup_patient(
         raise HTTPException(status_code=404, detail="Patient not found")
 
     visits = db.query(VisitRecord).filter(
-        VisitRecord.patient_id == patient.id
+        VisitRecord.patient_id == patient.id,
+        VisitRecord.tenant_id == current_user.tenant_id
     ).order_by(VisitRecord.visit_date.desc()).all()
 
     return {
@@ -153,7 +164,7 @@ def lookup_patient(
 def get_patient(
     patient_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     patient = db.query(Patient).filter(
         Patient.id == patient_id,
@@ -163,7 +174,8 @@ def get_patient(
         raise HTTPException(status_code=404, detail="Patient not found")
 
     visits = db.query(VisitRecord).filter(
-        VisitRecord.patient_id == patient.id
+        VisitRecord.patient_id == patient.id,
+        VisitRecord.tenant_id == current_user.tenant_id
     ).order_by(VisitRecord.visit_date.desc()).all()
 
     return {
@@ -202,7 +214,7 @@ def update_patient(
     patient_id: str,
     data: PatientUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     patient = db.query(Patient).filter(
         Patient.id == patient_id,
@@ -227,7 +239,7 @@ def update_patient(
 def delete_patient(
     patient_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     patient = db.query(Patient).filter(
         Patient.id == patient_id,
@@ -238,4 +250,4 @@ def delete_patient(
 
     patient.is_active = False
     db.commit()
-    return {"message": "Patient removed"}   
+    return {"message": "Patient removed"}

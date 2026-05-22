@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CheckCircle2, Code2, Send, ShieldCheck, Stethoscope } from "lucide-react";
+import { Code2, Send, Stethoscope } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import { useAuth } from "../context/AuthContext";

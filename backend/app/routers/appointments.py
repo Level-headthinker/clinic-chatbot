@@ -3,7 +3,8 @@
 #  and the admin manages bookings from the dashboard.
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -11,7 +12,7 @@ from app.database import get_db
 from app.models.appointment import Appointment
 from app.models.doctor import Doctor
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import require_admin_user
 
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
@@ -33,7 +34,7 @@ class AppointmentUpdate(BaseModel):
 def book_appointment(
     data: AppointmentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     doctor = db.query(Doctor).filter(
         Doctor.id == data.doctor_id,
@@ -68,7 +69,14 @@ def book_appointment(
         status="pending"
     )
     db.add(appointment)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="This slot is already booked"
+        )
     db.refresh(appointment)
 
     return {
@@ -83,9 +91,11 @@ def book_appointment(
 def list_appointments(
     status: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
-    query = db.query(Appointment).filter(
+    query = db.query(Appointment).options(
+        joinedload(Appointment.doctor)
+    ).filter(
         Appointment.tenant_id == current_user.tenant_id,
         Appointment.is_active == True
     )
@@ -120,7 +130,7 @@ def update_appointment(
     appointment_id: str,
     data: AppointmentUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     appointment = db.query(Appointment).filter(
         Appointment.id == appointment_id,
@@ -151,7 +161,7 @@ def update_appointment(
 def cancel_appointment(
     appointment_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     appointment = db.query(Appointment).filter(
         Appointment.id == appointment_id,

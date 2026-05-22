@@ -3,8 +3,9 @@ import re
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -12,8 +13,10 @@ from app.models.appointment import Appointment
 from app.models.chat import ChatSession, Lead
 from app.models.doctor import Doctor
 from app.models.tenant import Tenant
+from app.models.user import User
 from app.services.conversation_logger import log_input_flag, log_output_flag
 from app.services.email import send_booking_notification, send_lead_notification
+from app.services.auth import get_current_user
 from app.services.input_guard import run_input_guard
 from app.services.llm import (
     detect_language,
@@ -21,8 +24,9 @@ from app.services.llm import (
     extract_patient_info,
     get_ai_response,
     is_emergency,
-    run_output_guard,
+    _message_may_contain_patient_info,
 )
+from app.services.output_guard import run_output_guard
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -232,7 +236,16 @@ def concern_from_session(session):
             if session.current_intent else "General Consultation")
 
 
-def try_save_appointment(session, tenant_id, db, tenant_name, doctors, search_text):
+def tenant_notification_email(tenant_id, db):
+    admin = db.query(User).filter(
+        User.tenant_id == tenant_id,
+        User.is_active == True,
+        User.role.in_(["admin", "superadmin"]),
+    ).order_by(User.created_at.asc()).first()
+    return admin.email if admin else ""
+
+
+def try_save_appointment(session, tenant_id, db, doctors, search_text):
     if not session.patient_name or not session.patient_phone:
         return None, None, None, "missing_patient"
     active = db.query(Appointment).filter(
@@ -253,31 +266,23 @@ def try_save_appointment(session, tenant_id, db, tenant_name, doctors, search_te
         patient_concern=concern_from_session(session), slot_datetime=slot, status="pending"
     )
     db.add(appointment)
-    send_booking_notification(
-        patient_name=session.patient_name, patient_phone=session.patient_phone,
-        patient_concern=appointment.patient_concern or "General",
-        doctor_name=doctor.name, slot=format_slot(slot), clinic_name=tenant_name
-    )
     return appointment, doctor, slot, None
 
 
-def try_save_lead(session, tenant_id, db, tenant_name):
+def try_save_lead(session, tenant_id, db) -> bool:
     if not session.patient_name or not session.patient_phone:
-        return
+        return False
     existing = db.query(Lead).filter(
         Lead.phone == session.patient_phone, Lead.tenant_id == tenant_id
     ).first()
     if existing:
-        return
+        return False
     lead = Lead(
         tenant_id=tenant_id, name=session.patient_name, phone=session.patient_phone,
         concern=concern_from_session(session), source="chatbot", status="new"
     )
     db.add(lead)
-    send_lead_notification(
-        patient_name=session.patient_name, patient_phone=session.patient_phone,
-        concern=lead.concern or "General Inquiry", clinic_name=tenant_name
-    )
+    return True
 
 
 # ════════════════════════════════════════════════════════════
@@ -286,10 +291,11 @@ def try_save_lead(session, tenant_id, db, tenant_name):
 # ════════════════════════════════════════════════════════════
 
 @router.post("/message", response_model=MessageResponse)
-def send_message(data: MessageRequest, db: Session = Depends(get_db)):
+def send_message(data: MessageRequest, request: Request, db: Session = Depends(get_db)):
 
     # ── PHASE 1: INPUT GUARD ─────────────────────────────────
-    guard_key = data.session_token or f"pre-session:{data.tenant_slug}"
+    client_ip = request.client.host if request.client else "unknown"
+    guard_key = data.session_token or f"pre-session:{data.tenant_slug}:{client_ip}"
     guard = run_input_guard(data.message, guard_key)
 
     if not guard.allowed:
@@ -343,7 +349,8 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
         db.add(session)
         db.flush()
 
-    if not session.patient_name or not session.patient_phone:
+    if (not session.patient_name or not session.patient_phone) and \
+            _message_may_contain_patient_info(clean_message):
         current_messages = list(session.messages or [])
         current_messages.append({"role": "user", "content": clean_message})
         info = extract_patient_info(current_messages)
@@ -385,8 +392,7 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
         intent = session.current_intent
 
     language = detect_language(clean_message)
-    if language != "en" or session.language == "en":
-        session.language = language
+    session.language = language
     session.current_intent = intent
 
     # ── PHASE 2: AI RESPONSE (hardened prompt + output guard) ─
@@ -402,11 +408,14 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
         visit_count=visit_count
     )
 
-    safe_reply = run_output_guard(raw_ai_reply, clean_message, language)
+    guarded_reply = run_output_guard(raw_ai_reply, clean_message, language)
+    safe_reply = guarded_reply.final_response
 
     # ── PHASE 4: LOG OUTPUT INTERCEPTIONS ────────────────────
-    if safe_reply != raw_ai_reply:
-        if is_emergency(clean_message):
+    if guarded_reply.was_modified and guarded_reply.should_log:
+        if guarded_reply.flag:
+            out_flag = guarded_reply.flag
+        elif is_emergency(clean_message):
             out_flag = "emergency_override"
         elif any(p in raw_ai_reply.lower() for p in ["probably have", "sounds like", "take 500mg"]):
             out_flag = "medical_advice"
@@ -432,7 +441,7 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
     messages.append({"role": "assistant", "content": ai_reply})
     session.messages = messages
 
-    try_save_lead(session, tenant.id, db, tenant.name)
+    new_lead = try_save_lead(session, tenant.id, db)
 
     booking_text = build_booking_search_text(session, clean_message)
     if (intent == "book_appointment" and not user_confirmed
@@ -440,13 +449,12 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
             and not is_emergency(clean_message)):
         options = find_booking_options(doctors, tenant.id, db, booking_text)
         ai_reply = f"{ai_reply}\n\n{booking_suggestion_reply(options, language)}"
-        messages[-1] = {"role": "assistant", "content": ai_reply}
-        session.messages = messages
 
+    appointment, doctor, slot = None, None, None
     if user_confirmed and intent == "book_appointment" and not is_emergency(clean_message):
         appointment, doctor, slot, error = try_save_appointment(
             session=session, tenant_id=tenant.id, db=db,
-            tenant_name=tenant.name, doctors=doctors, search_text=booking_text
+            doctors=doctors, search_text=booking_text
         )
         if appointment and doctor and slot:
             ai_reply = appointment_confirmation_reply(doctor, slot, language)
@@ -457,10 +465,37 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
                 lead.status = "converted"
         else:
             ai_reply = appointment_error_reply(error or "unknown", language)
-        messages[-1] = {"role": "assistant", "content": ai_reply}
-        session.messages = messages
 
-    db.commit()
+    messages[-1] = {"role": "assistant", "content": ai_reply}
+    session.messages = messages
+
+    # Notifications fire only after a successful commit — never for unsaved records.
+    try:
+        db.commit()
+        if new_lead or (appointment and doctor and slot):
+            concern = concern_from_session(session)
+            admin_email = tenant_notification_email(tenant.id, db)
+            if new_lead:
+                send_lead_notification(
+                    patient_name=session.patient_name,
+                    patient_phone=session.patient_phone,
+                    concern=concern,
+                    clinic_name=tenant.name,
+                    to_email=admin_email,
+                )
+            if appointment and doctor and slot:
+                send_booking_notification(
+                    patient_name=session.patient_name,
+                    patient_phone=session.patient_phone,
+                    patient_concern=appointment.patient_concern or "General",
+                    doctor_name=display_doctor_name(doctor),
+                    slot=format_slot(slot),
+                    clinic_name=tenant.name,
+                    to_email=admin_email,
+                )
+    except IntegrityError:
+        db.rollback()
+        ai_reply = appointment_error_reply("active_appointment", language)
     return MessageResponse(
         session_token=session.session_token,
         reply=ai_reply, intent=intent, language=language
@@ -468,12 +503,19 @@ def send_message(data: MessageRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/session/{session_token}")
-def get_session(session_token: str, tenant_slug: str, db: Session = Depends(get_db)):
+def get_session(
+    session_token: str,
+    tenant_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     tenant = db.query(Tenant).filter(
         Tenant.slug == tenant_slug, Tenant.is_active == True
     ).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Clinic not found")
+    if not current_user.is_superadmin and current_user.tenant_id != tenant.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
     session = db.query(ChatSession).filter(
         ChatSession.session_token == session_token,
         ChatSession.tenant_id == tenant.id

@@ -1,6 +1,7 @@
 import logging
 import smtplib
 import threading
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.config import settings
@@ -38,9 +39,16 @@ def send_booking_notification(
     patient_concern: str,
     doctor_name: str,
     slot: str,
-    clinic_name: str
+    clinic_name: str,
+    to_email: str = "",
 ):
-    subject = f"New Appointment Booked — {patient_name}"
+    patient_name = escape(patient_name or "")
+    patient_phone = escape(patient_phone or "")
+    patient_concern = escape(patient_concern or "")
+    doctor_name = escape(doctor_name or "")
+    slot = escape(slot or "")
+    clinic_name = escape(clinic_name or "")
+    subject = f"New Appointment Booked - {patient_name}"
 
     body = f"""
     <html>
@@ -93,16 +101,21 @@ def send_booking_notification(
     </html>
     """
 
-    send_email(settings.ADMIN_EMAIL, subject, body)
+    send_email(to_email or settings.ADMIN_EMAIL, subject, body)
 
 
 def send_lead_notification(
     patient_name: str,
     patient_phone: str,
     concern: str,
-    clinic_name: str
+    clinic_name: str,
+    to_email: str = "",
 ):
-    subject = f"New Lead — {patient_name}"
+    patient_name = escape(patient_name or "")
+    patient_phone = escape(patient_phone or "")
+    concern = escape(concern or "")
+    clinic_name = escape(clinic_name or "")
+    subject = f"New Lead - {patient_name}"
 
     body = f"""
     <html>
@@ -147,4 +160,4 @@ def send_lead_notification(
     </html>
     """
 
-    send_email(settings.ADMIN_EMAIL, subject, body)
+    send_email(to_email or settings.ADMIN_EMAIL, subject, body)

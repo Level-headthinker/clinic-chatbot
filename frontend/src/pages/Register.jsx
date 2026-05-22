@@ -43,7 +43,9 @@ export default function Register() {
     if (!form.admin_email) return "Email is required";
     if (!form.admin_email.includes("@")) return "Enter a valid email";
     if (!form.admin_password) return "Password is required";
-    if (form.admin_password.length < 6) return "Password must be at least 6 characters";
+    if (form.admin_password.length < 8) return "Password must be at least 8 characters";
+    if (!/[A-Za-z]/.test(form.admin_password)) return "Password must contain at least one letter";
+    if (!/\d/.test(form.admin_password)) return "Password must contain at least one number";
     if (form.admin_password !== form.confirm_password) return "Passwords do not match";
     return null;
   };
@@ -250,7 +252,7 @@ export default function Register() {
               <input
                 type="password"
                 style={styles.input}
-                placeholder="Minimum 6 characters"
+                placeholder="Minimum 8 characters, with a letter and number"
                 value={form.admin_password}
                 onChange={(e) => updateForm("admin_password", e.target.value)}
               />

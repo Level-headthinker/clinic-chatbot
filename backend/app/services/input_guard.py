@@ -187,7 +187,7 @@ INJECTION_PATTERNS = [
     (r"disregard\s+(all\s+)?(previous|your)", "role_override"),
 
     # ── System prompt extraction ──
-    (r"(show|reveal|print|output|tell me|what is)\s+(your\s+)?(system\s+prompt|instructions)", "prompt_extraction"),
+    (r"(show|reveal|print|output|tell me|what is)\s+(me\s+)?(your\s+)?(system\s+prompt|instructions)", "prompt_extraction"),
     (r"repeat\s+(your\s+)?(system|initial|original)\s+(prompt|instructions)", "prompt_extraction"),
     (r"what\s+(were\s+)?you\s+(told|instructed|programmed)", "prompt_extraction"),
 
@@ -200,7 +200,7 @@ INJECTION_PATTERNS = [
     (r"without\s+(any\s+)?limitations", "jailbreak"),
 
     # ── Data extraction attempts ──
-    (r"(list|show|give me|tell me)\s+(all\s+)?(patients|users|appointments|records|database)", "data_extraction"),
+    (r"(list|show|give me|tell me)\s+(me\s+)?(all\s+)?(patients|users|appointments|records|database)", "data_extraction"),
     (r"(how many|count)\s+(patients|users|records)", "data_extraction"),
     (r"(dump|export|extract)\s+(the\s+)?(database|data|records|table)", "data_extraction"),
     (r"select\s+\*\s+from", "sql_injection"),              # SQL injection attempt

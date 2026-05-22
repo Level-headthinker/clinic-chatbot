@@ -13,7 +13,7 @@ from app.database import get_db
 from app.models.chat import Lead
 from app.models.patient import Patient
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import require_admin_user
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -26,7 +26,7 @@ class LeadUpdate(BaseModel):
 @router.get("/stats")
 def lead_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     rows = db.query(
         Lead.status,
@@ -54,7 +54,7 @@ def lead_stats(
 # Previously this endpoint had no auth — anyone on the internet could download it.
 @router.get("/import-template")
 def download_template(
-    current_user: User = Depends(get_current_user)   # ← added
+    current_user: User = Depends(require_admin_user)   # ← added
 ):
     output = io.StringIO()
     writer = csv.writer(output)
@@ -73,7 +73,7 @@ def download_template(
 def list_leads(
     status: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     query = db.query(Lead).filter(
         Lead.tenant_id == current_user.tenant_id,
@@ -104,7 +104,7 @@ def update_lead(
     lead_id: str,
     data: LeadUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     lead = db.query(Lead).filter(
         Lead.id == lead_id,
@@ -132,7 +132,7 @@ def update_lead(
 def delete_lead(
     lead_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     lead = db.query(Lead).filter(
         Lead.id == lead_id,
@@ -150,9 +150,11 @@ def delete_lead(
 async def import_patients(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     content = await file.read()
+    if len(content) > 1_000_000:
+        raise HTTPException(status_code=400, detail="CSV file is too large")
     try:
         decoded = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -163,8 +165,13 @@ async def import_patients(
     imported = 0
     skipped = 0
 
-    for row in reader:
-        row_lower = {k.lower().strip(): v for k, v in row.items()}
+    for row_number, row in enumerate(reader, start=1):
+        if row_number > 5000:
+            raise HTTPException(status_code=400, detail="CSV row limit exceeded")
+        row_lower = {
+            (k or "").lower().strip(): (v or "")
+            for k, v in row.items()
+        }
         phone = row_lower.get("phone", "").strip()
         name = row_lower.get("name", "").strip()
         condition = (

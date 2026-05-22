@@ -1,10 +1,16 @@
 from groq import Groq
 from app.config import settings
-from app.services.output_guard import run_output_guard  # Bug 1 fix — use the real Phase 3 guard
+from app.services.output_guard import OutputGuardConfig, run_output_guard as _run_output_guard
 import re
 import json
 
 client = Groq(api_key=settings.GROQ_API_KEY)
+MAX_RESPONSE_LENGTH = OutputGuardConfig.MAX_RESPONSE_LENGTH
+
+
+def run_output_guard(response: str, user_message: str, language: str) -> str:
+    """Backward-compatible wrapper for older tests/imports."""
+    return _run_output_guard(response, user_message, language).final_response
 
 SYSTEM_PROMPT = """\
 You are {bot_name}, the official appointment assistant for {clinic_name}.
@@ -362,10 +368,4 @@ def get_ai_response(
         temperature=0.5,
     )
 
-    raw_reply = response.choices[0].message.content
-
-    # Bug 1 fix: call the real Phase 3 output guard from output_guard.py.
-    # The old inline run_output_guard() defined in this file is removed —
-    # it was shadowing the real guard and preventing it from ever running.
-    guarded = run_output_guard(raw_reply, user_message, language)
-    return guarded.final_response
+    return response.choices[0].message.content

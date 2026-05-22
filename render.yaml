@@ -16,6 +16,8 @@ services:
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: 60
+      - key: CORS_ORIGINS
+        sync: false
       - key: MAIL_EMAIL
         sync: false
       - key: MAIL_PASSWORD

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""        # E.164 e.g. +12025551234
     TWILIO_WHATSAPP_FROM: str = ""       # WhatsApp sender e.g. +14155238886
+    VOICE_BRANCH_SLUG: str = ""          # Branch slug the voice agent answers for
 
     @property
     def cors_origins(self) -> list[str]:

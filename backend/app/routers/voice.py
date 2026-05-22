@@ -16,7 +16,6 @@ To wire up:
        https://<your-domain>/voice/incoming
   3. Set VOICE_BRANCH_SLUG in .env to route calls to the correct branch/clinic.
 """
-import os
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -34,7 +33,7 @@ except Exception:
 
 router = APIRouter(prefix="/voice", tags=["Voice Agent"])
 
-VOICE_BRANCH_SLUG = os.environ.get("VOICE_BRANCH_SLUG", "")
+VOICE_BRANCH_SLUG = settings.VOICE_BRANCH_SLUG
 
 
 def _twiml(body: str) -> Response:

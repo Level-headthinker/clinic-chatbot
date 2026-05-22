@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m alembic init alembic)"
+      "Bash(python -m alembic init alembic)",
+      "Bash(npm start *)"
     ]
   }
 }

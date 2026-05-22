@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.appointment import Appointment
+from app.models.branch import Branch
 from app.models.chat import ChatSession, Lead
 from app.models.doctor import Doctor
 from app.models.tenant import Tenant
@@ -53,7 +54,7 @@ SPECIALTY_KEYWORDS = {
 
 class MessageRequest(BaseModel):
     session_token: Optional[str] = None
-    tenant_slug: str
+    branch_slug: str
     message: str
 
 
@@ -245,7 +246,7 @@ def tenant_notification_email(tenant_id, db):
     return admin.email if admin else ""
 
 
-def try_save_appointment(session, tenant_id, db, doctors, search_text):
+def try_save_appointment(session, tenant_id, branch_id, db, doctors, search_text):
     if not session.patient_name or not session.patient_phone:
         return None, None, None, "missing_patient"
     active = db.query(Appointment).filter(
@@ -261,7 +262,7 @@ def try_save_appointment(session, tenant_id, db, doctors, search_text):
     doctor = options[0]["doctor"]
     slot = options[0]["slots"][0]
     appointment = Appointment(
-        tenant_id=tenant_id, doctor_id=doctor.id,
+        tenant_id=tenant_id, branch_id=branch_id, doctor_id=doctor.id,
         patient_name=session.patient_name, patient_phone=session.patient_phone,
         patient_concern=concern_from_session(session), slot_datetime=slot, status="pending"
     )
@@ -269,7 +270,7 @@ def try_save_appointment(session, tenant_id, db, doctors, search_text):
     return appointment, doctor, slot, None
 
 
-def try_save_lead(session, tenant_id, db) -> bool:
+def try_save_lead(session, tenant_id, branch_id, db) -> bool:
     if not session.patient_name or not session.patient_phone:
         return False
     existing = db.query(Lead).filter(
@@ -278,8 +279,9 @@ def try_save_lead(session, tenant_id, db) -> bool:
     if existing:
         return False
     lead = Lead(
-        tenant_id=tenant_id, name=session.patient_name, phone=session.patient_phone,
-        concern=concern_from_session(session), source="chatbot", status="new"
+        tenant_id=tenant_id, branch_id=branch_id, name=session.patient_name,
+        phone=session.patient_phone, concern=concern_from_session(session),
+        source="chatbot", status="new"
     )
     db.add(lead)
     return True
@@ -295,7 +297,7 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
 
     # ── PHASE 1: INPUT GUARD ─────────────────────────────────
     client_ip = request.client.host if request.client else "unknown"
-    guard_key = data.session_token or f"pre-session:{data.tenant_slug}:{client_ip}"
+    guard_key = data.session_token or f"pre-session:{data.branch_slug}:{client_ip}"
     guard = run_input_guard(data.message, guard_key)
 
     if not guard.allowed:
@@ -324,12 +326,14 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
 
     clean_message = guard.sanitized_message
 
-    # ── Resolve tenant ───────────────────────────────────────
-    tenant = db.query(Tenant).filter(
-        Tenant.slug == data.tenant_slug, Tenant.is_active == True
+    # ── Resolve branch → tenant ──────────────────────────────
+    from sqlalchemy.orm import joinedload
+    branch = db.query(Branch).options(joinedload(Branch.tenant)).filter(
+        Branch.slug == data.branch_slug, Branch.is_active == True
     ).first()
-    if not tenant:
+    if not branch or not branch.tenant or not branch.tenant.is_active:
         raise HTTPException(status_code=404, detail="Clinic not found")
+    tenant = branch.tenant
 
     # ── Resolve or create session ────────────────────────────
     session = None
@@ -342,6 +346,7 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
     if not session:
         session = ChatSession(
             tenant_id=tenant.id,
+            branch_id=branch.id,
             session_token=str(uuid.uuid4()),
             messages=[],
             language=detect_language(clean_message)
@@ -377,12 +382,16 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
             session.patient_name = existing_patient.name
 
     doctors = db.query(Doctor).filter(
-        Doctor.tenant_id == tenant.id, Doctor.is_active == True
+        Doctor.tenant_id == tenant.id,
+        Doctor.branch_id == branch.id,
+        Doctor.is_active == True,
     ).all()
 
+    bot_name = branch.bot_name or tenant.bot_name
+    welcome_msg = branch.welcome_message or tenant.welcome_message
     clinic_info = (
-        f"Clinic Name: {tenant.name}\nBot Name: {tenant.bot_name}\n"
-        f"Welcome Message: {tenant.welcome_message}\n"
+        f"Clinic Name: {tenant.name}\nBot Name: {bot_name}\n"
+        f"Welcome Message: {welcome_msg}\n"
         f"Clinic Timings: Monday to Saturday, 9am to 9pm\nEmergency: Call 1122"
     )
 
@@ -399,7 +408,7 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
     raw_ai_reply = get_ai_response(
         user_message=clean_message,
         conversation_history=session.messages or [],
-        bot_name=tenant.bot_name,
+        bot_name=bot_name,
         clinic_info=clinic_info,
         doctors_info=get_doctors_info(doctors),
         patient_name=session.patient_name or "Not collected yet",
@@ -432,6 +441,7 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
             safe_response=safe_reply,
             session_token=session.session_token,
             tenant_id=tenant.id,
+            branch_id=branch.id,
         )
 
     ai_reply = safe_reply
@@ -441,7 +451,7 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
     messages.append({"role": "assistant", "content": ai_reply})
     session.messages = messages
 
-    new_lead = try_save_lead(session, tenant.id, db)
+    new_lead = try_save_lead(session, tenant.id, branch.id, db)
 
     booking_text = build_booking_search_text(session, clean_message)
     if (intent == "book_appointment" and not user_confirmed
@@ -453,7 +463,7 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
     appointment, doctor, slot = None, None, None
     if user_confirmed and intent == "book_appointment" and not is_emergency(clean_message):
         appointment, doctor, slot, error = try_save_appointment(
-            session=session, tenant_id=tenant.id, db=db,
+            session=session, tenant_id=tenant.id, branch_id=branch.id, db=db,
             doctors=doctors, search_text=booking_text
         )
         if appointment and doctor and slot:
@@ -505,20 +515,21 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
 @router.get("/session/{session_token}")
 def get_session(
     session_token: str,
-    tenant_slug: str,
+    branch_slug: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    tenant = db.query(Tenant).filter(
-        Tenant.slug == tenant_slug, Tenant.is_active == True
+    branch = db.query(Branch).filter(
+        Branch.slug == branch_slug, Branch.is_active == True
     ).first()
-    if not tenant:
+    if not branch:
         raise HTTPException(status_code=404, detail="Clinic not found")
-    if not current_user.is_superadmin and current_user.tenant_id != tenant.id:
+    tenant_id = branch.tenant_id
+    if not current_user.is_superadmin and current_user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     session = db.query(ChatSession).filter(
         ChatSession.session_token == session_token,
-        ChatSession.tenant_id == tenant.id
+        ChatSession.tenant_id == tenant_id
     ).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")

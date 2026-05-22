@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = ""
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # Twilio — SMS, WhatsApp, Voice
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""        # E.164 e.g. +12025551234
+    TWILIO_WHATSAPP_FROM: str = ""       # WhatsApp sender e.g. +14155238886
+
     @property
     def cors_origins(self) -> list[str]:
         return [

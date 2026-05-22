@@ -2,6 +2,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
+  Bell,
+  Building2,
   Calendar,
   LayoutDashboard,
   LogOut,
@@ -13,16 +15,20 @@ import {
   Sun,
   UserCheck,
   Users,
+  UserCog,
 } from "lucide-react";
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-  { label: "Doctors", icon: Stethoscope, path: "/doctors" },
-  { label: "Patients", icon: UserCheck, path: "/patients" },
-  { label: "Appointments", icon: Calendar, path: "/appointments" },
-  { label: "Billing", icon: Receipt, path: "/billing" },
-  { label: "Leads", icon: Users, path: "/leads" },
-  { label: "Chat Preview", icon: MessageSquare, path: "/chat-preview" },
+  { label: "Dashboard",    icon: LayoutDashboard, path: "/dashboard" },
+  { label: "Doctors",      icon: Stethoscope,     path: "/doctors" },
+  { label: "Patients",     icon: UserCheck,       path: "/patients" },
+  { label: "Appointments", icon: Calendar,        path: "/appointments" },
+  { label: "Billing",      icon: Receipt,         path: "/billing" },
+  { label: "Leads",        icon: Users,           path: "/leads" },
+  { label: "Follow-ups",   icon: Bell,            path: "/follow-ups" },
+  { label: "Branches",     icon: Building2,       path: "/branches" },
+  { label: "Staff",        icon: UserCog,         path: "/users" },
+  { label: "Chat Preview", icon: MessageSquare,   path: "/chat-preview" },
 ];
 
 export default function Sidebar({ open = false, onClose }) {

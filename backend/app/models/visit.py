@@ -11,6 +11,7 @@ class VisitRecord(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
     doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=True)
     visit_date = Column(DateTime(timezone=True), server_default=func.now())

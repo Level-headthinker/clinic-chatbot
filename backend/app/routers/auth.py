@@ -11,6 +11,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from app.database import get_db
 from app.config import settings
+from app.models.branch import Branch
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import (
@@ -22,6 +23,23 @@ from app.services.auth import (
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 _auth_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def _resolve_branch_slug(user, tenant, db) -> str:
+    """Return the branch slug the user's chatbot embed should use.
+
+    Branch-scoped users → their assigned branch slug.
+    Tenant-level users  → the main branch slug (falls back to tenant slug).
+    """
+    if user.branch_id:
+        branch = db.query(Branch).filter(Branch.id == user.branch_id).first()
+        if branch:
+            return branch.slug
+    main = db.query(Branch).filter(
+        Branch.tenant_id == tenant.id,
+        Branch.is_main_branch == True,
+    ).first()
+    return main.slug if main else tenant.slug
 
 
 def _client_key(request: Request, suffix: str) -> str:
@@ -76,6 +94,7 @@ class TokenResponse(BaseModel):
     token_type: str
     tenant_id: str
     tenant_slug: str
+    branch_slug: str
     user_name: str
     user_email: str
     is_superadmin: bool
@@ -88,6 +107,7 @@ class MeResponse(BaseModel):
     role: str
     tenant_id: str
     tenant_slug: Optional[str]
+    branch_slug: Optional[str]
     is_superadmin: bool
 
 
@@ -122,12 +142,22 @@ def register(
     db.add(tenant)
     db.flush()
 
+    main_branch = Branch(
+        tenant_id=tenant.id,
+        name=data.clinic_name,
+        slug=data.clinic_slug,
+        is_main_branch=True,
+    )
+    db.add(main_branch)
+    db.flush()
+
     user = User(
         tenant_id=tenant.id,
         email=data.admin_email,
         hashed_password=hash_password(data.admin_password),
         full_name=data.admin_full_name,
-        role="admin"
+        role="admin",
+        # branch_id stays NULL — admin has tenant-level access to all branches
     )
     db.add(user)
     db.commit()
@@ -185,6 +215,7 @@ def login(
         "token_type": "bearer",
         "tenant_id": str(user.tenant_id),
         "tenant_slug": tenant.slug,
+        "branch_slug": _resolve_branch_slug(user, tenant, db),
         "user_name": user.full_name,
         "user_email": user.email,
         "is_superadmin": user.is_superadmin
@@ -214,5 +245,6 @@ def get_me(
         role=current_user.role,
         tenant_id=str(current_user.tenant_id),
         tenant_slug=tenant.slug if tenant else None,
+        branch_slug=_resolve_branch_slug(current_user, tenant, db) if tenant else None,
         is_superadmin=current_user.is_superadmin
     )

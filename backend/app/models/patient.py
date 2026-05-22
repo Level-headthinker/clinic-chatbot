@@ -11,6 +11,8 @@ class Patient(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    # Patients are tenant-scoped but can visit any branch. primary_branch is where they registered.
+    primary_branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     phone = Column(String(50), nullable=False)
     age = Column(Integer)

@@ -28,13 +28,13 @@ def lead_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user)
 ):
-    rows = db.query(
-        Lead.status,
-        func.count(Lead.id)
-    ).filter(
+    stats_q = db.query(Lead.status, func.count(Lead.id)).filter(
         Lead.tenant_id == current_user.tenant_id,
-        Lead.is_active == True
-    ).group_by(Lead.status).all()
+        Lead.is_active == True,
+    )
+    if current_user.branch_id is not None:
+        stats_q = stats_q.filter(Lead.branch_id == current_user.branch_id)
+    rows = stats_q.group_by(Lead.status).all()
 
     counts = {status: count for status, count in rows}
     total = sum(counts.values())
@@ -77,8 +77,10 @@ def list_leads(
 ):
     query = db.query(Lead).filter(
         Lead.tenant_id == current_user.tenant_id,
-        Lead.is_active == True
+        Lead.is_active == True,
     )
+    if current_user.branch_id is not None:
+        query = query.filter(Lead.branch_id == current_user.branch_id)
     if status:
         query = query.filter(Lead.status == status)
 

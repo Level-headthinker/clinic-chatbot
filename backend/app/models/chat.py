@@ -16,6 +16,7 @@ class ChatSession(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     session_token = Column(String(255), unique=True, nullable=False)
     messages = Column(JSONB, default=list)
     language = Column(String(10), default="en")
@@ -27,6 +28,7 @@ class ChatSession(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     tenant = relationship("Tenant", back_populates="chat_sessions")
+    branch = relationship("Branch", back_populates="chat_sessions")
 
 
 class Lead(Base):
@@ -34,6 +36,7 @@ class Lead(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     phone = Column(String(50), nullable=False)
     concern = Column(Text)
@@ -44,3 +47,4 @@ class Lead(Base):
     notes = Column(Text, nullable=True)
 
     tenant = relationship("Tenant", back_populates="leads")
+    branch = relationship("Branch", back_populates="leads")

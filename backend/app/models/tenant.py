@@ -25,6 +25,7 @@ class Tenant(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     users = relationship("User", back_populates="tenant")
+    branches = relationship("Branch", back_populates="tenant")
     doctors = relationship("Doctor", back_populates="tenant")
     appointments = relationship("Appointment", back_populates="tenant")
     leads = relationship("Lead", back_populates="tenant")

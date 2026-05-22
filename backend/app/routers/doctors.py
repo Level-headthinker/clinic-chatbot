@@ -26,6 +26,7 @@ class DoctorCreate(BaseModel):
     available_slots: list = Field(default_factory=list)
     treatments: list = Field(default_factory=list)
     timings: list = Field(default_factory=list)
+    branch_id: Optional[str] = None
 
 
 class DoctorUpdate(BaseModel):
@@ -46,8 +47,11 @@ def add_doctor(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user)
 ):
+    # Branch-scoped users are locked to their branch; tenant-level admins may specify one
+    branch_id = current_user.branch_id or data.branch_id
     doctor = Doctor(
         tenant_id=current_user.tenant_id,
+        branch_id=branch_id,
         name=data.name,
         specialty=data.specialty,
         qualification=data.qualification,
@@ -71,10 +75,13 @@ def list_doctors(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user)
 ):
-    doctors = db.query(Doctor).filter(
+    query = db.query(Doctor).filter(
         Doctor.tenant_id == current_user.tenant_id,
-        Doctor.is_active == True
-    ).all()
+        Doctor.is_active == True,
+    )
+    if current_user.branch_id is not None:
+        query = query.filter(Doctor.branch_id == current_user.branch_id)
+    doctors = query.all()
 
     return [
         {

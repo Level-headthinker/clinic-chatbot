@@ -36,7 +36,7 @@ export default function ChatPreview() {
     setLoading(true);
 
     try {
-      const slug = user?.tenant_slug;
+      const slug = user?.branch_slug;
       if (!slug) {
         notify("Clinic profile is missing. Please log in again.", "error");
         return;
@@ -44,7 +44,7 @@ export default function ChatPreview() {
 
       const response = await api.post("/chat/message", {
         message: userMessage,
-        tenant_slug: slug,
+        branch_slug: slug,
         session_token: sessionToken || null,
       });
 
@@ -74,7 +74,7 @@ export default function ChatPreview() {
     }
   };
 
-  const widgetUrl = `${window.location.origin}/widget.html?clinic=${user?.tenant_slug || "your-clinic"}`;
+  const widgetUrl = `${window.location.origin}/widget.html?clinic=${user?.branch_slug || "your-clinic"}`;
 
   return (
     <AppLayout

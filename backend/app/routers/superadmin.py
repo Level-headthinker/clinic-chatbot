@@ -3,6 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
+from app.models.branch import Branch
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.doctor import Doctor
@@ -31,6 +32,7 @@ def get_stats(
     current_user: User = Depends(verify_super_admin)
 ):
     total_tenants = db.query(Tenant).filter(Tenant.is_active == True).count()
+    total_branches = db.query(Branch).filter(Branch.is_active == True).count()
     total_appointments = db.query(Appointment).count()
     total_leads = db.query(Lead).count()
     total_doctors = db.query(Doctor).filter(Doctor.is_active == True).count()
@@ -45,6 +47,7 @@ def get_stats(
 
     return {
         "total_clinics": total_tenants,
+        "total_branches": total_branches,
         "total_appointments": total_appointments,
         "total_leads": total_leads,
         "total_doctors": total_doctors,
@@ -84,6 +87,11 @@ def get_all_clinics(
         db.query(FlaggedLog.tenant_id, func.count(FlaggedLog.id))
         .group_by(FlaggedLog.tenant_id).all()
     )
+    branch_counts = dict(
+        db.query(Branch.tenant_id, func.count(Branch.id))
+        .filter(Branch.is_active == True)
+        .group_by(Branch.tenant_id).all()
+    )
 
     result = []
     for t in tenants:
@@ -94,6 +102,7 @@ def get_all_clinics(
             "plan": t.plan,
             "is_active": t.is_active,
             "created_at": str(t.created_at),
+            "branches": branch_counts.get(t.id, 0),
             "appointments": appointment_counts.get(t.id, 0),
             "leads": lead_counts.get(t.id, 0),
             "doctors": doctor_counts.get(t.id, 0),
@@ -118,6 +127,93 @@ def toggle_clinic(
         "message": f"Clinic {'activated' if tenant.is_active else 'deactivated'}",
         "is_active": tenant.is_active
     }
+
+
+@router.get("/clinics/{tenant_id}/branches")
+def get_clinic_branches(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    """List all branches for a clinic with per-branch stats."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+
+    branches = db.query(Branch).filter(
+        Branch.tenant_id == tenant_id
+    ).order_by(Branch.is_main_branch.desc(), Branch.name).all()
+
+    if not branches:
+        return []
+
+    branch_ids = [b.id for b in branches]
+
+    appt_counts = dict(
+        db.query(Appointment.branch_id, func.count(Appointment.id))
+        .filter(Appointment.tenant_id == tenant_id, Appointment.branch_id.in_(branch_ids))
+        .group_by(Appointment.branch_id).all()
+    )
+    lead_counts = dict(
+        db.query(Lead.branch_id, func.count(Lead.id))
+        .filter(Lead.tenant_id == tenant_id, Lead.branch_id.in_(branch_ids))
+        .group_by(Lead.branch_id).all()
+    )
+    doctor_counts = dict(
+        db.query(Doctor.branch_id, func.count(Doctor.id))
+        .filter(Doctor.tenant_id == tenant_id, Doctor.is_active == True, Doctor.branch_id.in_(branch_ids))
+        .group_by(Doctor.branch_id).all()
+    )
+    chat_counts = dict(
+        db.query(ChatSession.branch_id, func.count(ChatSession.id))
+        .filter(ChatSession.tenant_id == tenant_id, ChatSession.branch_id.in_(branch_ids))
+        .group_by(ChatSession.branch_id).all()
+    )
+
+    return [
+        {
+            "id": str(b.id),
+            "name": b.name,
+            "slug": b.slug,
+            "city": b.city,
+            "is_main_branch": b.is_main_branch,
+            "is_active": b.is_active,
+            "created_at": str(b.created_at),
+            "appointments": appt_counts.get(b.id, 0),
+            "leads": lead_counts.get(b.id, 0),
+            "active_doctors": doctor_counts.get(b.id, 0),
+            "chat_sessions": chat_counts.get(b.id, 0),
+        }
+        for b in branches
+    ]
+
+
+@router.put("/clinics/{tenant_id}/branches/{branch_id}/toggle")
+def toggle_branch(
+    tenant_id: str,
+    branch_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    """Activate or deactivate a branch."""
+    branch = db.query(Branch).filter(
+        Branch.id == branch_id,
+        Branch.tenant_id == tenant_id,
+    ).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    if branch.is_active:
+        active_count = db.query(Branch).filter(
+            Branch.tenant_id == tenant_id,
+            Branch.is_active == True,
+        ).count()
+        if active_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot deactivate the last active branch")
+
+    branch.is_active = not branch.is_active
+    db.commit()
+    return {"is_active": branch.is_active, "name": branch.name}
 
 
 @router.put("/clinics/{tenant_id}/plan")

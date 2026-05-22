@@ -14,6 +14,7 @@ class Invoice(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
     visit_id = Column(UUID(as_uuid=True), ForeignKey("visit_records.id"), nullable=True)
     invoice_number = Column(String(50), nullable=False)

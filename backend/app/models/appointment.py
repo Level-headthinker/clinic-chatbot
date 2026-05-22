@@ -15,6 +15,7 @@ class Appointment(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=False)
     patient_name = Column(String(255), nullable=False)
     patient_phone = Column(String(50), nullable=False)
@@ -37,4 +38,5 @@ class Appointment(Base):
     )
 
     tenant = relationship("Tenant", back_populates="appointments")
+    branch = relationship("Branch", back_populates="appointments")
     doctor = relationship("Doctor", back_populates="appointments")

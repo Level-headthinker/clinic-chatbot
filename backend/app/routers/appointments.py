@@ -61,6 +61,7 @@ def book_appointment(
 
     appointment = Appointment(
         tenant_id=current_user.tenant_id,
+        branch_id=current_user.branch_id or doctor.branch_id,
         doctor_id=data.doctor_id,
         patient_name=data.patient_name,
         patient_phone=data.patient_phone,
@@ -97,8 +98,10 @@ def list_appointments(
         joinedload(Appointment.doctor)
     ).filter(
         Appointment.tenant_id == current_user.tenant_id,
-        Appointment.is_active == True
+        Appointment.is_active == True,
     )
+    if current_user.branch_id is not None:
+        query = query.filter(Appointment.branch_id == current_user.branch_id)
     if status:
         query = query.filter(Appointment.status == status)
 

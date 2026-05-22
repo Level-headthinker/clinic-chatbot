@@ -1,7 +1,3 @@
-// Creates a single configured axios instance that every
-//  React component uses to talk to the backend. Sets the base URL once so you never repeat it.
-//  Automatically attaches the JWT token to every request so protected routes work.
-
 import axios from "axios";
 
 const api = axios.create({
@@ -10,6 +6,14 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("access_token");
+  if (token) {
+    config.headers["Authorization"] = `Bearer ${token}`;
+  }
+  return config;
 });
 
 api.interceptors.response.use(

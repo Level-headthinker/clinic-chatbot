@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Trash2, X } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -29,6 +29,18 @@ export default function PatientDetail() {
   const [saving, setSaving] = useState(false);
   const [visitForm, setVisitForm] = useState(initialVisitForm);
   const [medInput, setMedInput] = useState({ medicine: "", dosage: "", frequency: "", duration: "", notes: "" });
+
+  // Prescriptions state
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [showRxForm, setShowRxForm] = useState(false);
+  const [rxForm, setRxForm] = useState({ diagnosis: "", instructions: "", medications: [] });
+  const [rxMedInput, setRxMedInput] = useState({ name: "", dosage: "", frequency: "", duration: "" });
+
+  // Notes / Communication log state
+  const [notes, setNotes] = useState([]);
+  const [noteForm, setNoteForm] = useState({ type: "note", content: "", channel_target: "" });
+  const [showNoteForm, setShowNoteForm] = useState(false);
+
   const { notify } = useToast();
 
   const fetchPatient = useCallback(async () => {
@@ -52,10 +64,26 @@ export default function PatientDetail() {
     }
   }, [notify]);
 
+  const fetchPrescriptions = useCallback(async () => {
+    try {
+      const res = await api.get("/prescriptions", { params: { patient_id: id } });
+      setPrescriptions(res.data);
+    } catch { /* non-critical */ }
+  }, [id]);
+
+  const fetchNotes = useCallback(async () => {
+    try {
+      const res = await api.get("/notes", { params: { patient_id: id } });
+      setNotes(res.data);
+    } catch { /* non-critical */ }
+  }, [id]);
+
   useEffect(() => {
     fetchPatient();
     fetchDoctors();
-  }, [fetchPatient, fetchDoctors]);
+    fetchPrescriptions();
+    fetchNotes();
+  }, [fetchPatient, fetchDoctors, fetchPrescriptions, fetchNotes]);
 
   const addMedicine = () => {
     if (!medInput.medicine) return;
@@ -98,6 +126,50 @@ export default function PatientDetail() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Prescription handlers
+  const addRxMed = () => {
+    if (!rxMedInput.name) return;
+    setRxForm((f) => ({ ...f, medications: [...f.medications, { ...rxMedInput }] }));
+    setRxMedInput({ name: "", dosage: "", frequency: "", duration: "" });
+  };
+  const removeRxMed = (i) => setRxForm((f) => ({ ...f, medications: f.medications.filter((_, idx) => idx !== i) }));
+  const saveRx = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post("/prescriptions", { ...rxForm, patient_id: id });
+      notify("Prescription saved.", "success");
+      setRxForm({ diagnosis: "", instructions: "", medications: [] });
+      setShowRxForm(false);
+      fetchPrescriptions();
+    } catch { notify("Failed to save prescription.", "error"); }
+  };
+  const deleteRx = async (rxId) => {
+    if (!window.confirm("Delete this prescription?")) return;
+    try {
+      await api.delete(`/prescriptions/${rxId}`);
+      notify("Deleted.", "success");
+      fetchPrescriptions();
+    } catch { notify("Failed to delete.", "error"); }
+  };
+
+  // Note handlers
+  const saveNote = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post("/notes", { ...noteForm, patient_id: id, channel_target: noteForm.channel_target || null });
+      notify(noteForm.type === "note" ? "Note saved." : "Message sent.", "success");
+      setNoteForm({ type: "note", content: "", channel_target: "" });
+      setShowNoteForm(false);
+      fetchNotes();
+    } catch (err) { notify(err?.response?.data?.detail || "Failed to save.", "error"); }
+  };
+  const deleteNote = async (noteId) => {
+    try {
+      await api.delete(`/notes/${noteId}`);
+      fetchNotes();
+    } catch { notify("Failed to delete.", "error"); }
   };
 
   if (loading) {
@@ -197,6 +269,137 @@ export default function PatientDetail() {
         )}
       </section>
 
+      {/* ── Prescriptions ─────────────────────────────────────── */}
+      <section className="table-panel">
+        <div className="panel-header">
+          <h2>Prescriptions</h2>
+          <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => setShowRxForm((s) => !s)}>
+            <Plus size={14} /> {showRxForm ? "Close" : "New prescription"}
+          </button>
+        </div>
+
+        {showRxForm && (
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--line)" }}>
+            <form onSubmit={saveRx} className="form-stack" style={{ margin: 0 }}>
+              <div className="form-grid">
+                <input className="input" placeholder="Diagnosis" value={rxForm.diagnosis} onChange={(e) => setRxForm((f) => ({ ...f, diagnosis: e.target.value }))} />
+                <input className="input" placeholder="Instructions" value={rxForm.instructions} onChange={(e) => setRxForm((f) => ({ ...f, instructions: e.target.value }))} />
+              </div>
+              <div className="action-row">
+                <input className="input" placeholder="Medicine name *" value={rxMedInput.name} onChange={(e) => setRxMedInput((m) => ({ ...m, name: e.target.value }))} />
+                <input className="input" placeholder="Dosage" value={rxMedInput.dosage} onChange={(e) => setRxMedInput((m) => ({ ...m, dosage: e.target.value }))} />
+                <input className="input" placeholder="Frequency" value={rxMedInput.frequency} onChange={(e) => setRxMedInput((m) => ({ ...m, frequency: e.target.value }))} />
+                <input className="input" placeholder="Duration" value={rxMedInput.duration} onChange={(e) => setRxMedInput((m) => ({ ...m, duration: e.target.value }))} />
+                <button type="button" className="btn btn-secondary" onClick={addRxMed}><Plus size={14} /></button>
+              </div>
+              <div className="chip-row">
+                {rxForm.medications.map((m, i) => (
+                  <span className="chip" key={i}>{m.name} {m.dosage}
+                    <button type="button" onClick={() => removeRxMed(i)}><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+              <div className="action-row">
+                <button className="btn btn-primary" type="submit">Save prescription</button>
+                <button className="btn btn-secondary" type="button" onClick={() => setShowRxForm(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {prescriptions.length === 0 ? (
+          <p style={{ padding: "14px 20px", color: "var(--muted)", fontSize: 13 }}>No prescriptions yet.</p>
+        ) : (
+          <div style={{ padding: "12px 20px" }} className="form-stack">
+            {prescriptions.map((rx) => (
+              <div key={rx.id} style={{ background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 8, padding: "12px 16px" }}>
+                <div className="panel-header" style={{ padding: 0, borderBottom: 0, marginBottom: 8 }}>
+                  <div>
+                    <strong>{rx.diagnosis || "Prescription"}</strong>
+                    <p className="muted" style={{ fontSize: 12, margin: 0 }}>{new Date(rx.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <button className="icon-btn btn-danger" onClick={() => deleteRx(rx.id)}><Trash2 size={13} /></button>
+                </div>
+                <div className="chip-row">
+                  {(rx.medications || []).map((m, i) => (
+                    <span className="chip" key={i}>{m.name} {m.dosage && `— ${m.dosage}`} {m.frequency && `× ${m.frequency}`}</span>
+                  ))}
+                </div>
+                {rx.instructions && <p style={{ fontSize: 12, marginTop: 8, color: "var(--muted)" }}>{rx.instructions}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Communication log ─────────────────────────────────── */}
+      <section className="table-panel">
+        <div className="panel-header">
+          <h2>Communication log</h2>
+          <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => setShowNoteForm((s) => !s)}>
+            <MessageSquare size={14} /> {showNoteForm ? "Close" : "Add note / message"}
+          </button>
+        </div>
+
+        {showNoteForm && (
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--line)" }}>
+            <form onSubmit={saveNote} className="form-stack" style={{ margin: 0 }}>
+              <div className="form-grid">
+                <select className="select" value={noteForm.type} onChange={(e) => setNoteForm((f) => ({ ...f, type: e.target.value }))}>
+                  <option value="note">Internal note</option>
+                  <option value="call">Call log</option>
+                  <option value="sms">SMS</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="email">Email</option>
+                </select>
+                {["sms", "whatsapp", "email"].includes(noteForm.type) && (
+                  <input
+                    className="input"
+                    placeholder={noteForm.type === "email" ? "Email address" : "Phone e.g. +923001234567"}
+                    value={noteForm.channel_target}
+                    onChange={(e) => setNoteForm((f) => ({ ...f, channel_target: e.target.value }))}
+                  />
+                )}
+              </div>
+              <textarea
+                className="input textarea"
+                placeholder={noteForm.type === "note" ? "Note content..." : "Message to send..."}
+                value={noteForm.content}
+                onChange={(e) => setNoteForm((f) => ({ ...f, content: e.target.value }))}
+                required
+              />
+              <div className="action-row">
+                <button className="btn btn-primary" type="submit">
+                  {["sms", "whatsapp", "email"].includes(noteForm.type) ? "Send message" : "Save note"}
+                </button>
+                <button className="btn btn-secondary" type="button" onClick={() => setShowNoteForm(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {notes.length === 0 ? (
+          <p style={{ padding: "14px 20px", color: "var(--muted)", fontSize: 13 }}>No notes or messages yet.</p>
+        ) : (
+          <div style={{ padding: "12px 20px" }} className="form-stack">
+            {notes.map((n) => (
+              <div key={n.id} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <span className={`badge ${noteTypeBadge(n.type)}`} style={{ flexShrink: 0, marginTop: 2 }}>{n.type}</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontSize: 13 }}>{n.content}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--muted)" }}>
+                    {new Date(n.created_at).toLocaleString()}
+                    {n.channel_target && ` → ${n.channel_target}`}
+                    {n.delivery_status && ` (${n.delivery_status})`}
+                  </p>
+                </div>
+                <button className="icon-btn btn-danger" onClick={() => deleteNote(n.id)}><Trash2 size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {showVisitForm && (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -260,4 +463,11 @@ function Info({ label, value }) {
       <p className="record-value" style={{ fontSize: 16 }}>{value}</p>
     </div>
   );
+}
+
+function noteTypeBadge(type) {
+  if (type === "sms" || type === "whatsapp") return "badge-success";
+  if (type === "email") return "";
+  if (type === "call") return "badge-warning";
+  return "";
 }

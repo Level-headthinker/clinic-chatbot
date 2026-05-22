@@ -33,6 +33,7 @@ export const AuthProvider = ({ children }) => {
           email: response.data.email,
           tenant_id: response.data.tenant_id,
           tenant_slug: response.data.tenant_slug,
+          branch_slug: response.data.branch_slug,
           user_name: response.data.full_name,
           is_superadmin: response.data.is_superadmin,
         };
@@ -61,6 +62,7 @@ export const AuthProvider = ({ children }) => {
     const {
       tenant_id,
       tenant_slug,
+      branch_slug,
       user_name,
       user_email,
       is_superadmin,
@@ -70,10 +72,12 @@ export const AuthProvider = ({ children }) => {
       email: user_email || email,
       tenant_id,
       tenant_slug,
+      branch_slug,
       user_name,
       is_superadmin,
     };
 
+    localStorage.setItem("access_token", response.data.access_token);
     localStorage.setItem("user", JSON.stringify(loggedInUser));
     setUser(loggedInUser);
     return response.data;

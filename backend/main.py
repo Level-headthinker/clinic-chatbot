@@ -6,10 +6,9 @@ from app.config import settings
 from app.database import engine, Base
 
 # Import all models so create_all sees them
-from app.models import appointment, chat, doctor, invoice, patient, tenant, user, visit  # noqa
-from app.models.flagged_log import FlaggedLog  # noqa
+import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, doctors, appointments, leads, superadmin, patients, visits, billing
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice
 
 
 def create_tables_with_retry(retries: int = 5, delay: int = 5):
@@ -57,6 +56,13 @@ app.include_router(superadmin.router)
 app.include_router(patients.router)
 app.include_router(visits.router)
 app.include_router(billing.router)
+app.include_router(branches.router)
+app.include_router(users.router)
+app.include_router(dashboard.router)
+app.include_router(follow_ups.router)
+app.include_router(prescriptions.router)
+app.include_router(notes.router)
+app.include_router(voice.router)
 
 
 @app.get("/")

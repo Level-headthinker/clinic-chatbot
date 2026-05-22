@@ -11,6 +11,9 @@ import SuperAdmin from "./pages/SuperAdmin";
 import Patients from "./pages/Patients";
 import PatientDetail from "./pages/PatientDetail";
 import Billing from "./pages/Billing";
+import Branches from "./pages/Branches";
+import Users from "./pages/Users";
+import FollowUps from "./pages/FollowUps";
 import Landing from "./pages/Landing";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./context/ToastContext";
@@ -29,6 +32,20 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+function SuperAdminRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="app-main" style={{ marginLeft: 0 }}>
+        <SkeletonBlock className="panel skeleton-table" />
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" />;
+  if (!user.is_superadmin) return <Navigate to="/dashboard" />;
+  return children;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -37,7 +54,6 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Landing />} />
-              <Route path="/super" element={<ProtectedRoute><SuperAdmin /></ProtectedRoute>} />
               <Route path="/register" element={<Register />} />
               <Route path="/login" element={<Login />} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -48,6 +64,10 @@ export default function App() {
               <Route path="/patients" element={<ProtectedRoute><Patients /></ProtectedRoute>} />
               <Route path="/patients/:id" element={<ProtectedRoute><PatientDetail /></ProtectedRoute>} />
               <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
+              <Route path="/branches" element={<ProtectedRoute><Branches /></ProtectedRoute>} />
+              <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
+              <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
+              <Route path="/super" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />
             </Routes>
           </BrowserRouter>
         </AuthProvider>

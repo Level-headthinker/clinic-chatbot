@@ -10,6 +10,7 @@ def log_input_flag(
     blocked_reason: Optional[str],
     session_token: Optional[str] = None,
     tenant_id=None,
+    branch_id=None,
 ) -> None:
     """
     Log a message blocked by the InputGuard.
@@ -26,10 +27,11 @@ def log_input_flag(
     try:
         entry = FlaggedLog(
             tenant_id=tenant_id,
+            branch_id=branch_id,
             session_token=session_token,
             flag_type=flag_type,
             source="input_guard",
-            flagged_message=flagged_message[:1000],  # cap storage
+            flagged_message=flagged_message[:1000],
             blocked_reason=blocked_reason,
         )
         db.add(entry)
@@ -50,6 +52,7 @@ def log_output_flag(
     safe_response: str,
     session_token: Optional[str] = None,
     tenant_id=None,
+    branch_id=None,
 ) -> None:
     """
     Log a response intercepted by the OutputGuard.
@@ -67,6 +70,7 @@ def log_output_flag(
     try:
         entry = FlaggedLog(
             tenant_id=tenant_id,
+            branch_id=branch_id,
             session_token=session_token,
             flag_type=flag_type,
             source="output_guard",

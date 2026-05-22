@@ -17,6 +17,12 @@ class FlaggedLog(Base):
         nullable=True,
         index=True
     )
+    branch_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("branches.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
 
     # Which chat session — nullable if blocked before session created
     session_token = Column(String(255), nullable=True, index=True)

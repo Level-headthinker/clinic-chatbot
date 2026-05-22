@@ -9,5 +9,6 @@ python-multipart
 pydantic[email]
 pydantic-settings
 groq
+httpx
 python-dotenv
 pytest

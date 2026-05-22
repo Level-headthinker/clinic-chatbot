@@ -16,11 +16,18 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = ""
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
-    # Twilio — SMS, WhatsApp, Voice
+    # Twilio — SMS only (optional, keep blank to disable)
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""        # E.164 e.g. +12025551234
-    TWILIO_WHATSAPP_FROM: str = ""       # WhatsApp sender e.g. +14155238886
+
+    # Meta Cloud API — WhatsApp (free 1,000 conversations/month)
+    META_PHONE_NUMBER_ID: str = ""       # From Meta App Dashboard
+    META_ACCESS_TOKEN: str = ""          # Permanent system user token
+
+    # VAPI.ai — Voice Agent (free 10 min/month, then pay-per-minute)
+    VAPI_API_KEY: str = ""               # From vapi.ai dashboard
+    VAPI_PHONE_NUMBER_ID: str = ""       # VAPI phone number ID (not the number itself)
     VOICE_BRANCH_SLUG: str = ""          # Branch slug the voice agent answers for
 
     @property

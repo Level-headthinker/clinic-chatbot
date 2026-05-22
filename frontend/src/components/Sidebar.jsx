@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
+  BarChart2,
   Bell,
   Building2,
   Calendar,
@@ -11,6 +12,7 @@ import {
   Moon,
   Phone,
   Receipt,
+  Settings,
   Shield,
   Stethoscope,
   Sun,
@@ -21,6 +23,7 @@ import {
 
 const navItems = [
   { label: "Dashboard",    icon: LayoutDashboard, path: "/dashboard" },
+  { label: "Analytics",    icon: BarChart2,        path: "/analytics" },
   { label: "Doctors",      icon: Stethoscope,     path: "/doctors" },
   { label: "Patients",     icon: UserCheck,       path: "/patients" },
   { label: "Appointments", icon: Calendar,        path: "/appointments" },
@@ -31,6 +34,7 @@ const navItems = [
   { label: "Branches",     icon: Building2,       path: "/branches" },
   { label: "Staff",        icon: UserCog,         path: "/users" },
   { label: "Chat Preview", icon: MessageSquare,   path: "/chat-preview" },
+  { label: "Settings",     icon: Settings,        path: "/settings" },
 ];
 
 export default function Sidebar({ open = false, onClose }) {

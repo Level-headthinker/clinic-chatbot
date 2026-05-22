@@ -82,9 +82,18 @@ def get_current_user(
 
 
 def require_admin_user(current_user: User = Depends(get_current_user)):
-    if current_user.is_superadmin or current_user.role in ("admin", "superadmin"):
+    """Any authenticated user with admin or higher role. Includes branch admins."""
+    if current_user.is_superadmin or current_user.role in ("admin", "branch_admin", "superadmin"):
         return current_user
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+
+def require_tenant_admin(current_user: User = Depends(get_current_user)):
+    """Tenant-level admin only — NOT branch admins. Used for branch creation/deletion."""
+    if current_user.is_superadmin or current_user.role in ("admin", "superadmin"):
+        if current_user.branch_id is None:
+            return current_user
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Admin access required",
+        detail="Only clinic-level admins can perform this action",
     )

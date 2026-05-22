@@ -223,6 +223,8 @@ def appointment_error_reply(reason, language):
     return "Appointment save nahi ho saki." if roman else "I could not save the appointment."
 
 
+_PHONE_IN_MSG = re.compile(r"(\+92|92|0)3[0-9]{9}|\b\d{10,11}\b")
+
 def concern_from_session(session):
     for msg in reversed(session.messages or []):
         content = msg.get("content", "").strip()
@@ -231,6 +233,8 @@ def concern_from_session(session):
         if is_confirmation_message(content):
             continue
         if re.fullmatch(r"[\d+\-\s()]{7,}", content):
+            continue
+        if _PHONE_IN_MSG.search(content):  # skip contact-info messages that contain a phone
             continue
         return content[:500]
     return (session.current_intent.replace("_", " ").title()
@@ -381,10 +385,11 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
         if existing_patient and not session.patient_name:
             session.patient_name = existing_patient.name
 
+    from sqlalchemy import or_
     doctors = db.query(Doctor).filter(
         Doctor.tenant_id == tenant.id,
-        Doctor.branch_id == branch.id,
         Doctor.is_active == True,
+        or_(Doctor.branch_id == branch.id, Doctor.branch_id.is_(None)),
     ).all()
 
     bot_name = branch.bot_name or tenant.bot_name

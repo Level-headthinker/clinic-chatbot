@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.branch import Branch
 from app.models.user import User
-from app.services.auth import get_current_user, require_admin_user
+from app.services.auth import get_current_user, require_admin_user, require_tenant_admin
 
 router = APIRouter(prefix="/branches", tags=["Branches"])
 
@@ -109,10 +109,10 @@ def list_branches(
 @router.post("", response_model=BranchResponse, status_code=status.HTTP_201_CREATED)
 def create_branch(
     data: BranchCreate,
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_tenant_admin),
     db: Session = Depends(get_db),
 ):
-    """Create a new branch. Admin only."""
+    """Create a new branch. Tenant-level admin only (not branch admins)."""
     if data.is_main_branch:
         existing_main = db.query(Branch).filter(
             Branch.tenant_id == current_user.tenant_id,
@@ -191,10 +191,10 @@ def update_branch(
 @router.patch("/{branch_id}/toggle", response_model=BranchResponse)
 def toggle_branch(
     branch_id: str,
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_tenant_admin),
     db: Session = Depends(get_db),
 ):
-    """Toggle branch active/inactive. Cannot deactivate the last active branch."""
+    """Toggle branch active/inactive. Tenant-level admin only."""
     branch = _get_branch_or_404(branch_id, current_user.tenant_id, db)
 
     if branch.is_active:

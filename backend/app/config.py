@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # Meta Cloud API — WhatsApp (free 1,000 conversations/month)
     META_PHONE_NUMBER_ID: str = ""       # From Meta App Dashboard
     META_ACCESS_TOKEN: str = ""          # Permanent system user token
+    META_VERIFY_TOKEN: str = "clinicbot_verify"  # Any secret string for webhook verification
 
     # VAPI.ai — Voice Agent (free 10 min/month, then pay-per-minute)
     VAPI_API_KEY: str = ""               # From vapi.ai dashboard

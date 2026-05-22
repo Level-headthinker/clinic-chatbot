@@ -15,6 +15,9 @@ import Branches from "./pages/Branches";
 import Users from "./pages/Users";
 import FollowUps from "./pages/FollowUps";
 import Voice from "./pages/Voice";
+import Analytics from "./pages/Analytics";
+import Settings from "./pages/Settings";
+import BookingPage from "./pages/BookingPage";
 import Landing from "./pages/Landing";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./context/ToastContext";
@@ -69,6 +72,9 @@ export default function App() {
               <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
               <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
               <Route path="/voice" element={<ProtectedRoute><Voice /></ProtectedRoute>} />
+              <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/book/:slug" element={<BookingPage />} />
               <Route path="/super" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />
             </Routes>
           </BrowserRouter>

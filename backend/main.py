@@ -8,7 +8,20 @@ from app.database import engine, Base
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking
+from app.routers import settings as settings_router
+from app.services.scheduler import start_scheduler, stop_scheduler
+
+
+def _add_missing_columns():
+    """Safely add new columns to existing tables (idempotent)."""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
+            "reminder_sent BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        conn.commit()
 
 
 def create_tables_with_retry(retries: int = 5, delay: int = 5):
@@ -26,10 +39,11 @@ def create_tables_with_retry(retries: int = 5, delay: int = 5):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Runs AFTER uvicorn starts — DB has time to wake up
     create_tables_with_retry()
+    _add_missing_columns()
+    start_scheduler()
     yield
-    # Anything after yield runs on shutdown (nothing needed here)
+    stop_scheduler()
 
 
 app = FastAPI(
@@ -63,6 +77,10 @@ app.include_router(follow_ups.router)
 app.include_router(prescriptions.router)
 app.include_router(notes.router)
 app.include_router(voice.router)
+app.include_router(analytics.router)
+app.include_router(settings_router.router)
+app.include_router(whatsapp.router)
+app.include_router(booking.router)
 
 
 @app.get("/")

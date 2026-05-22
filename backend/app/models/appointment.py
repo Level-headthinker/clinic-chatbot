@@ -23,6 +23,7 @@ class Appointment(Base):
     slot_datetime = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(50), default="pending")
     notes = Column(Text)
+    reminder_sent = Column(Boolean, default=False, nullable=False, server_default="false")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -1,11 +1,95 @@
 import { useCallback, useEffect, useState } from "react";
-import { FilePlus2, Plus, X } from "lucide-react";
+import { CalendarDays, FilePlus2, List, Plus, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import EmptyState from "../components/EmptyState";
 import { SkeletonBlock } from "../components/Skeleton";
 import { useToast } from "../context/ToastContext";
+
+// ── Weekly Calendar ────────────────────────────────────────────────────────────
+function WeekCalendar({ appointments }) {
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - d.getDay() + 1); // Monday
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    return d;
+  });
+
+  const apptsByDay = days.map((day) =>
+    appointments.filter((a) => {
+      const slot = new Date(a.slot_datetime);
+      return slot.toDateString() === day.toDateString();
+    })
+  );
+
+  const prevWeek = () => setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; });
+  const nextWeek = () => setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; });
+
+  const weekLabel = `${days[0].toLocaleDateString("en-PK", { day: "numeric", month: "short" })} – ${days[6].toLocaleDateString("en-PK", { day: "numeric", month: "short", year: "numeric" })}`;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button className="btn btn-secondary" onClick={prevWeek}>←</button>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>{weekLabel}</span>
+        <button className="btn btn-secondary" onClick={nextWeek}>→</button>
+        <button className="btn btn-secondary" onClick={() => {
+          const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); d.setHours(0,0,0,0);
+          setWeekStart(d);
+        }}>Today</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+        {days.map((day, i) => {
+          const isToday = day.toDateString() === new Date().toDateString();
+          return (
+            <div key={i} style={{
+              border: `1px solid ${isToday ? "var(--primary)" : "var(--line)"}`,
+              borderRadius: "var(--radius-md)", overflow: "hidden", minHeight: 140,
+            }}>
+              <div style={{
+                padding: "6px 10px",
+                background: isToday ? "var(--primary)" : "var(--surface-2)",
+                color: isToday ? "#fff" : "var(--text-2)",
+                fontSize: 12, fontWeight: 600,
+              }}>
+                {day.toLocaleDateString("en-PK", { weekday: "short", day: "numeric" })}
+              </div>
+              <div style={{ padding: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                {apptsByDay[i].length === 0
+                  ? <p style={{ fontSize: 11, color: "var(--muted)", padding: "4px 2px" }}>—</p>
+                  : apptsByDay[i].map((a) => (
+                    <div key={a.id} style={{
+                      background: `var(--${badgeColor(a.status)}-soft, var(--primary-soft))`,
+                      border: `1px solid var(--${badgeColor(a.status)}-border, var(--primary-border))`,
+                      borderRadius: 6, padding: "4px 7px", fontSize: 11,
+                    }}>
+                      <p style={{ fontWeight: 600, margin: 0 }}>{new Date(a.slot_datetime).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}</p>
+                      <p style={{ margin: 0, color: "var(--text-2)" }}>{a.patient_name}</p>
+                      <p style={{ margin: 0, color: "var(--muted)", fontSize: 10 }}>{a.doctor_name}</p>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function badgeColor(status) {
+  if (status === "confirmed" || status === "completed") return "success";
+  if (status === "cancelled" || status === "no_show") return "danger";
+  return "warning";
+}
 
 const initialVisitForm = {
   complaint: "",
@@ -22,6 +106,7 @@ export default function Appointments() {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  const [view, setView] = useState("list"); // "list" | "calendar"
   const [visitModal, setVisitModal] = useState(null);
   const [doctors, setDoctors] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -136,16 +221,30 @@ export default function Appointments() {
       title="Appointments"
       subtitle="Confirm bookings, record visits, and move patients into billing."
       actions={
-        <select className="select" value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="">All status</option>
-          <option value="pending">Pending</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="completed">Completed</option>
-          <option value="no_show">No show</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select className="select" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="">All status</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="completed">Completed</option>
+            <option value="no_show">No show</option>
+          </select>
+          <button className={`btn ${view === "list" ? "btn-primary" : "btn-secondary"}`} onClick={() => setView("list")} title="List view">
+            <List size={16} />
+          </button>
+          <button className={`btn ${view === "calendar" ? "btn-primary" : "btn-secondary"}`} onClick={() => setView("calendar")} title="Calendar view">
+            <CalendarDays size={16} />
+          </button>
+        </div>
       }
     >
+      {view === "calendar" && !loading && (
+        <div className="panel" style={{ marginBottom: 20, padding: 20 }}>
+          <WeekCalendar appointments={appointments} />
+        </div>
+      )}
+
       <section className="table-panel">
         <div className="panel-header">
           <h2>Appointment queue</h2>
@@ -253,7 +352,5 @@ export default function Appointments() {
 }
 
 function badgeClass(status) {
-  if (status === "confirmed" || status === "completed") return "badge-success";
-  if (status === "cancelled" || status === "no_show") return "badge-danger";
-  return "badge-warning";
+  return `badge-${badgeColor(status)}`;
 }

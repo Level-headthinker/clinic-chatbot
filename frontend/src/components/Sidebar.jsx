@@ -56,51 +56,54 @@ export default function Sidebar({ open = false, onClose }) {
 
   return (
     <aside className={`sidebar ${open ? "open" : ""}`}>
-      <div className="sidebar-brand">
-        <div className="brand-mark">
-          <Stethoscope size={22} />
+      <div className="sidebar-inner">
+        <div className="sidebar-brand">
+          <div className="brand-mark">
+            <Stethoscope size={22} />
+          </div>
+          <div>
+            <p className="brand-title">ClinicBot</p>
+            <p className="brand-subtitle">{user?.user_name || "Clinic"}</p>
+          </div>
         </div>
-        <div>
-          <p className="brand-title">ClinicBot</p>
-          <p className="brand-subtitle">{user?.user_name || "Clinic admin"}</p>
-        </div>
-      </div>
 
-      <nav className="sidebar-nav">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = location.pathname === item.path;
-          return (
+        <nav className="sidebar-nav">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = location.pathname === item.path ||
+              (item.path !== "/dashboard" && location.pathname.startsWith(item.path));
+            return (
+              <button
+                key={item.path}
+                className={`nav-item ${active ? "active" : ""}`}
+                onClick={() => goTo(item.path)}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+          {user?.is_superadmin && (
             <button
-              key={item.path}
-              className={`nav-item ${active ? "active" : ""}`}
-              onClick={() => goTo(item.path)}
+              className={`nav-item ${location.pathname === "/super" ? "active" : ""}`}
+              onClick={() => goTo("/super")}
             >
-              <Icon size={18} />
-              <span>{item.label}</span>
+              <Shield size={18} />
+              <span>Super Admin</span>
             </button>
-          );
-        })}
-        {user?.is_superadmin && (
-          <button
-            className={`nav-item ${location.pathname === "/super" ? "active" : ""}`}
-            onClick={() => goTo("/super")}
-          >
-            <Shield size={18} />
-            <span>Super Admin</span>
-          </button>
-        )}
-      </nav>
+          )}
+        </nav>
 
-      <div className="sidebar-footer">
-        <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
-          {darkMode ? <Sun size={18} /> : <Moon size={18} />}
-          <span>{darkMode ? "Light mode" : "Dark mode"}</span>
-        </button>
-        <button onClick={handleLogout} className="logout-btn">
-          <LogOut size={18} />
-          <span>Logout</span>
-        </button>
+        <div className="sidebar-footer">
+          <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
+            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            <span>{darkMode ? "Light mode" : "Dark mode"}</span>
+          </button>
+          <button onClick={handleLogout} className="logout-btn">
+            <LogOut size={18} />
+            <span>Logout</span>
+          </button>
+        </div>
       </div>
     </aside>
   );

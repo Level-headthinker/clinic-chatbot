@@ -1,48 +1,44 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ArrowRight, CheckCircle2, Stethoscope } from "lucide-react";
 import api from "../api/axios";
+
+const CITIES = ["Lahore", "Karachi", "Islamabad", "Rawalpindi", "Faisalabad", "Multan", "Peshawar", "Quetta", "Other"];
+
+const emptyForm = {
+  clinic_name: "",
+  clinic_slug: "",
+  admin_email: "",
+  admin_password: "",
+  confirm_password: "",
+  admin_full_name: "",
+  city: "",
+};
 
 export default function Register() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [form, setForm] = useState(emptyForm);
   const navigate = useNavigate();
 
-  const [form, setForm] = useState({
-    clinic_name: "",
-    clinic_slug: "",
-    admin_email: "",
-    admin_password: "",
-    confirm_password: "",
-    admin_full_name: "",
-    phone: "",
-    city: "",
-  });
+  const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
-  const updateForm = (field, value) => {
-    setForm({ ...form, [field]: value });
-    if (field === "clinic_name") {
-      const slug = value
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9-]/g, "");
-      setForm((prev) => ({ ...prev, clinic_name: value, clinic_slug: slug }));
-    }
+  const handleClinicName = (value) => {
+    const slug = value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    setForm((prev) => ({ ...prev, clinic_name: value, clinic_slug: slug }));
   };
 
   const validateStep1 = () => {
-    if (!form.clinic_name) return "Clinic name is required";
-    if (!form.clinic_slug) return "Clinic slug is required";
-    if (form.clinic_slug.length < 3) return "Slug must be at least 3 characters";
+    if (!form.clinic_name.trim()) return "Clinic name is required";
+    if (!form.clinic_slug || form.clinic_slug.length < 3) return "Clinic URL must be at least 3 characters";
     return null;
   };
 
   const validateStep2 = () => {
-    if (!form.admin_full_name) return "Your name is required";
-    if (!form.admin_email) return "Email is required";
-    if (!form.admin_email.includes("@")) return "Enter a valid email";
-    if (!form.admin_password) return "Password is required";
+    if (!form.admin_full_name.trim()) return "Your name is required";
+    if (!form.admin_email.includes("@")) return "Enter a valid email address";
     if (form.admin_password.length < 8) return "Password must be at least 8 characters";
     if (!/[A-Za-z]/.test(form.admin_password)) return "Password must contain at least one letter";
     if (!/\d/.test(form.admin_password)) return "Password must contain at least one number";
@@ -50,7 +46,7 @@ export default function Register() {
     return null;
   };
 
-  const handleNext = () => {
+  const goNext = () => {
     const err = validateStep1();
     if (err) { setError(err); return; }
     setError("");
@@ -74,13 +70,9 @@ export default function Register() {
       setSuccess(true);
     } catch (err) {
       const msg = err.response?.data?.detail;
-      if (msg === "Clinic slug already taken") {
-        setError("This clinic URL is already taken. Try a different name.");
-      } else if (msg === "Email already registered") {
-        setError("This email is already registered. Please login.");
-      } else {
-        setError("Something went wrong. Please try again.");
-      }
+      if (msg === "Clinic slug already taken") setError("This clinic URL is already taken. Try a different name.");
+      else if (msg === "Email already registered") setError("This email is already registered. Please log in.");
+      else setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -88,27 +80,23 @@ export default function Register() {
 
   if (success) {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.successIcon}>🎉</div>
-          <h2 style={styles.successTitle}>You are all set!</h2>
-          <p style={styles.successText}>
-            Your clinic has been registered successfully.
-            Login to set up your doctors and start capturing patients.
+      <div className="auth-page">
+        <div className="auth-card" style={{ textAlign: "center" }}>
+          <div style={{ width: 56, height: 56, borderRadius: "50%", background: "var(--success-soft)", border: "1px solid var(--success-border)", display: "grid", placeItems: "center", margin: "0 auto 16px", color: "var(--success)" }}>
+            <CheckCircle2 size={28} />
+          </div>
+          <h1 style={{ fontSize: 22, marginBottom: 8 }}>You are all set!</h1>
+          <p style={{ marginBottom: 20 }}>
+            Your clinic has been registered. Log in to configure doctors and start capturing patients.
           </p>
-          <div style={styles.successInfo}>
-            <p style={{ margin: "0 0 6px 0", fontSize: "13px", color: "#64748b" }}>
-              Your chat widget URL:
-            </p>
-            <code style={styles.code}>
+          <div style={{ background: "var(--primary-soft)", border: "1px solid var(--primary-border)", borderRadius: "var(--radius-md)", padding: "14px 16px", marginBottom: 24, textAlign: "left" }}>
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--muted)", marginBottom: 6 }}>Your chat widget URL</p>
+            <code style={{ display: "block", fontSize: 13, color: "var(--primary-text)", wordBreak: "break-all", fontFamily: "monospace" }}>
               clinicbot.pk/widget/{form.clinic_slug}
             </code>
           </div>
-          <button
-            onClick={() => navigate("/login")}
-            style={styles.button}
-          >
-            Go to Login
+          <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", minHeight: 42 }} onClick={() => navigate("/login")}>
+            Go to login <ArrowRight size={16} />
           </button>
         </div>
       </div>
@@ -116,182 +104,126 @@ export default function Register() {
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-
-        {/* Header */}
-        <div style={styles.header}>
-          <h1 style={styles.logo}>🏥 ClinicBot</h1>
-          <p style={styles.subtitle}>Register your clinic — free for 30 days</p>
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-logo">
+          <div className="auth-logo-mark">
+            <Stethoscope size={20} color="#fff" />
+          </div>
+          <div>
+            <h1 style={{ fontSize: 20, marginBottom: 1 }}>ClinicBot</h1>
+            <p style={{ fontSize: 12, margin: 0 }}>Free for 30 days</p>
+          </div>
         </div>
+
+        <h1 style={{ fontSize: 22, marginBottom: 4 }}>Register your clinic</h1>
+        <p style={{ marginBottom: 20 }}>Set up takes under 2 minutes.</p>
 
         {/* Step indicator */}
-        <div style={styles.steps}>
-          <div style={styles.stepRow}>
-            <div style={{
-              ...styles.stepCircle,
-              backgroundColor: step >= 1 ? "#2563eb" : "#e2e8f0",
-              color: step >= 1 ? "#fff" : "#94a3b8"
-            }}>1</div>
-            <div style={{
-              ...styles.stepLine,
-              backgroundColor: step >= 2 ? "#2563eb" : "#e2e8f0"
-            }} />
-            <div style={{
-              ...styles.stepCircle,
-              backgroundColor: step >= 2 ? "#2563eb" : "#e2e8f0",
-              color: step >= 2 ? "#fff" : "#94a3b8"
-            }}>2</div>
-          </div>
-          <div style={styles.stepLabels}>
-            <span style={{ fontSize: "11px", color: step === 1 ? "#2563eb" : "#94a3b8" }}>
-              Clinic Info
-            </span>
-            <span style={{ fontSize: "11px", color: step === 2 ? "#2563eb" : "#94a3b8" }}>
-              Your Account
-            </span>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 24 }}>
+          {[1, 2].map((n, i) => (
+            <div key={n} style={{ display: "flex", alignItems: "center", flex: i === 0 ? "none" : 1, gap: 0 }}>
+              {i > 0 && (
+                <div style={{ flex: 1, height: 2, background: step >= n ? "var(--primary)" : "var(--line)", transition: "background 300ms" }} />
+              )}
+              <div style={{
+                width: 28, height: 28, borderRadius: "50%", display: "grid", placeItems: "center",
+                fontSize: 13, fontWeight: 700, flexShrink: 0,
+                background: step >= n ? "var(--primary)" : "var(--surface-2)",
+                color: step >= n ? "#fff" : "var(--muted)",
+                border: `2px solid ${step >= n ? "var(--primary)" : "var(--line)"}`,
+                transition: "all 200ms",
+              }}>{n}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 600, color: "var(--muted)", marginTop: -16, marginBottom: 20 }}>
+          <span style={{ color: step === 1 ? "var(--primary)" : "var(--muted)" }}>Clinic info</span>
+          <span style={{ color: step === 2 ? "var(--primary)" : "var(--muted)" }}>Your account</span>
         </div>
 
-        {/* Error */}
-        {error && <div style={styles.error}>{error}</div>}
+        {error && (
+          <div style={{ background: "var(--danger-soft)", border: "1px solid var(--danger-border)", borderRadius: "var(--radius)", padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "var(--danger)" }}>
+            {error}
+          </div>
+        )}
 
-        {/* Step 1 — Clinic Info */}
         {step === 1 && (
-          <div style={styles.form}>
-            <div style={styles.field}>
-              <label style={styles.label}>Clinic Name *</label>
-              <input
-                style={styles.input}
-                placeholder="e.g. City Medical Clinic"
-                value={form.clinic_name}
-                onChange={(e) => updateForm("clinic_name", e.target.value)}
-              />
+          <div className="form-stack">
+            <div className="field">
+              <label>Clinic name *</label>
+              <input className="input" placeholder="City Medical Clinic" value={form.clinic_name} onChange={(e) => handleClinicName(e.target.value)} autoFocus />
             </div>
 
-            <div style={styles.field}>
-              <label style={styles.label}>Clinic URL *</label>
-              <div style={styles.slugRow}>
-                <span style={styles.slugPrefix}>clinicbot.pk/</span>
+            <div className="field">
+              <label>Clinic URL *</label>
+              <div style={{ display: "flex", alignItems: "stretch" }}>
+                <span style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRight: "none", padding: "9px 10px", fontSize: 13, color: "var(--muted)", borderRadius: "var(--radius) 0 0 var(--radius)", whiteSpace: "nowrap", display: "flex", alignItems: "center" }}>
+                  clinicbot.pk/
+                </span>
                 <input
-                  style={{ ...styles.input, borderRadius: "0 8px 8px 0", flex: 1 }}
+                  className="input"
+                  style={{ borderRadius: "0 var(--radius) var(--radius) 0", flex: 1 }}
                   placeholder="city-medical-clinic"
                   value={form.clinic_slug}
-                  onChange={(e) => updateForm("clinic_slug",
-                    e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
-                  )}
+                  onChange={(e) => set("clinic_slug", e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""))}
                 />
               </div>
-              <p style={styles.hint}>
-                This will be your unique clinic link. Auto-generated from clinic name.
-              </p>
+              <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Auto-generated from clinic name. Can be edited.</p>
             </div>
 
-            <div style={styles.field}>
-              <label style={styles.label}>City</label>
-              <select
-                style={styles.input}
-                value={form.city}
-                onChange={(e) => updateForm("city", e.target.value)}
-              >
+            <div className="field">
+              <label>City</label>
+              <select className="select" value={form.city} onChange={(e) => set("city", e.target.value)}>
                 <option value="">Select city</option>
-                <option>Lahore</option>
-                <option>Karachi</option>
-                <option>Islamabad</option>
-                <option>Rawalpindi</option>
-                <option>Faisalabad</option>
-                <option>Multan</option>
-                <option>Peshawar</option>
-                <option>Quetta</option>
-                <option>Other</option>
+                {CITIES.map((c) => <option key={c}>{c}</option>)}
               </select>
             </div>
 
-            <button onClick={handleNext} style={styles.button}>
-              Next →
+            <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", minHeight: 42 }} onClick={goNext}>
+              Continue <ArrowRight size={16} />
             </button>
 
-            <p style={styles.loginText}>
+            <p style={{ textAlign: "center", fontSize: 13, margin: 0 }}>
               Already registered?{" "}
-              <span
-                onClick={() => navigate("/login")}
-                style={styles.loginLink}
-              >
-                Login here
-              </span>
+              <button className="btn btn-secondary" style={{ fontSize: 13, padding: "4px 10px", minHeight: "auto" }} onClick={() => navigate("/login")}>
+                Log in
+              </button>
             </p>
           </div>
         )}
 
-        {/* Step 2 — Account Info */}
         {step === 2 && (
-          <form onSubmit={handleSubmit} style={styles.form}>
-            <div style={styles.field}>
-              <label style={styles.label}>Your Full Name *</label>
-              <input
-                style={styles.input}
-                placeholder="Dr. Ahmed Khan"
-                value={form.admin_full_name}
-                onChange={(e) => updateForm("admin_full_name", e.target.value)}
-              />
+          <form onSubmit={handleSubmit} className="form-stack">
+            <div className="field">
+              <label>Your full name *</label>
+              <input className="input" placeholder="Dr. Ahmed Khan" value={form.admin_full_name} onChange={(e) => set("admin_full_name", e.target.value)} autoFocus required />
+            </div>
+            <div className="field">
+              <label>Email address *</label>
+              <input className="input" type="email" placeholder="doctor@yourclinic.com" value={form.admin_email} onChange={(e) => set("admin_email", e.target.value)} required />
+            </div>
+            <div className="field">
+              <label>Password *</label>
+              <input className="input" type="password" placeholder="Min 8 chars, include a letter and number" value={form.admin_password} onChange={(e) => set("admin_password", e.target.value)} required />
+            </div>
+            <div className="field">
+              <label>Confirm password *</label>
+              <input className="input" type="password" placeholder="Repeat your password" value={form.confirm_password} onChange={(e) => set("confirm_password", e.target.value)} required />
             </div>
 
-            <div style={styles.field}>
-              <label style={styles.label}>Email Address *</label>
-              <input
-                type="email"
-                style={styles.input}
-                placeholder="doctor@yourclinic.com"
-                value={form.admin_email}
-                onChange={(e) => updateForm("admin_email", e.target.value)}
-              />
+            <div style={{ background: "var(--primary-soft)", border: "1px solid var(--primary-border)", borderRadius: "var(--radius-md)", padding: "12px 16px" }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "var(--primary-text)", marginBottom: 2 }}>Free trial — 30 days</p>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>No credit card required. Full access to all features.</p>
             </div>
 
-            <div style={styles.field}>
-              <label style={styles.label}>Password *</label>
-              <input
-                type="password"
-                style={styles.input}
-                placeholder="Minimum 8 characters, with a letter and number"
-                value={form.admin_password}
-                onChange={(e) => updateForm("admin_password", e.target.value)}
-              />
-            </div>
-
-            <div style={styles.field}>
-              <label style={styles.label}>Confirm Password *</label>
-              <input
-                type="password"
-                style={styles.input}
-                placeholder="Repeat your password"
-                value={form.confirm_password}
-                onChange={(e) => updateForm("confirm_password", e.target.value)}
-              />
-            </div>
-
-            {/* Plan info box */}
-            <div style={styles.planBox}>
-              <p style={styles.planTitle}>🎁 Free Trial — 30 Days</p>
-              <p style={styles.planText}>
-                No credit card required. Full access to all features.
-                After 30 days — only 3,000 PKR/month.
-              </p>
-            </div>
-
-            <div style={styles.buttonRow}>
-              <button
-                type="button"
-                onClick={() => { setStep(1); setError(""); }}
-                style={styles.backButton}
-              >
+            <div className="action-row">
+              <button type="button" className="btn btn-secondary" onClick={() => { setStep(1); setError(""); }}>
                 ← Back
               </button>
-              <button
-                type="submit"
-                style={loading ? styles.buttonDisabled : styles.button}
-                disabled={loading}
-              >
-                {loading ? "Creating account..." : "Create Account"}
+              <button type="submit" className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} disabled={loading}>
+                {loading ? "Creating account…" : "Create account"}
+                {!loading && <ArrowRight size={16} />}
               </button>
             </div>
           </form>
@@ -300,221 +232,3 @@ export default function Register() {
     </div>
   );
 }
-
-const styles = {
-  container: {
-    minHeight: "100vh",
-    backgroundColor: "#f0f4f8",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "20px",
-  },
-  card: {
-    backgroundColor: "#ffffff",
-    borderRadius: "16px",
-    padding: "40px",
-    width: "100%",
-    maxWidth: "460px",
-    boxShadow: "0 4px 24px rgba(0,0,0,0.1)",
-  },
-  header: {
-    textAlign: "center",
-    marginBottom: "28px",
-  },
-  logo: {
-    fontSize: "26px",
-    fontWeight: "700",
-    color: "#1e40af",
-    margin: "0 0 6px 0",
-  },
-  subtitle: {
-    color: "#64748b",
-    fontSize: "14px",
-    margin: 0,
-  },
-  steps: {
-    marginBottom: "24px",
-  },
-  stepRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "0",
-    marginBottom: "6px",
-  },
-  stepCircle: {
-    width: "32px",
-    height: "32px",
-    borderRadius: "50%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "14px",
-    fontWeight: "700",
-  },
-  stepLine: {
-    flex: 1,
-    height: "3px",
-    maxWidth: "120px",
-  },
-  stepLabels: {
-    display: "flex",
-    justifyContent: "space-between",
-    paddingLeft: "8px",
-    paddingRight: "8px",
-  },
-  error: {
-    backgroundColor: "#fee2e2",
-    color: "#dc2626",
-    padding: "12px",
-    borderRadius: "8px",
-    marginBottom: "16px",
-    fontSize: "13px",
-    textAlign: "center",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-  },
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-  },
-  label: {
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#374151",
-  },
-  input: {
-    padding: "11px 14px",
-    borderRadius: "8px",
-    border: "1px solid #d1d5db",
-    fontSize: "14px",
-    outline: "none",
-    width: "100%",
-    boxSizing: "border-box",
-  },
-  slugRow: {
-    display: "flex",
-    alignItems: "center",
-  },
-  slugPrefix: {
-    backgroundColor: "#f1f5f9",
-    border: "1px solid #d1d5db",
-    borderRight: "none",
-    padding: "11px 10px",
-    fontSize: "13px",
-    color: "#64748b",
-    borderRadius: "8px 0 0 8px",
-    whiteSpace: "nowrap",
-  },
-  hint: {
-    fontSize: "11px",
-    color: "#94a3b8",
-    margin: 0,
-  },
-  planBox: {
-    backgroundColor: "#eff6ff",
-    border: "1px solid #bfdbfe",
-    borderRadius: "10px",
-    padding: "14px 16px",
-  },
-  planTitle: {
-    fontSize: "14px",
-    fontWeight: "700",
-    color: "#1e40af",
-    margin: "0 0 4px 0",
-  },
-  planText: {
-    fontSize: "12px",
-    color: "#3b82f6",
-    margin: 0,
-    lineHeight: "1.5",
-  },
-  buttonRow: {
-    display: "flex",
-    gap: "12px",
-  },
-  button: {
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    padding: "12px",
-    borderRadius: "8px",
-    border: "none",
-    fontSize: "15px",
-    fontWeight: "600",
-    cursor: "pointer",
-    flex: 1,
-  },
-  buttonDisabled: {
-    backgroundColor: "#93c5fd",
-    color: "#ffffff",
-    padding: "12px",
-    borderRadius: "8px",
-    border: "none",
-    fontSize: "15px",
-    fontWeight: "600",
-    cursor: "not-allowed",
-    flex: 1,
-  },
-  backButton: {
-    backgroundColor: "#f1f5f9",
-    color: "#374151",
-    padding: "12px",
-    borderRadius: "8px",
-    border: "none",
-    fontSize: "15px",
-    fontWeight: "600",
-    cursor: "pointer",
-    width: "100px",
-  },
-  loginText: {
-    textAlign: "center",
-    fontSize: "13px",
-    color: "#64748b",
-    margin: 0,
-  },
-  loginLink: {
-    color: "#2563eb",
-    fontWeight: "600",
-    cursor: "pointer",
-  },
-  successIcon: {
-    fontSize: "52px",
-    textAlign: "center",
-    marginBottom: "16px",
-  },
-  successTitle: {
-    fontSize: "22px",
-    fontWeight: "700",
-    color: "#1e293b",
-    textAlign: "center",
-    margin: "0 0 10px 0",
-  },
-  successText: {
-    fontSize: "14px",
-    color: "#64748b",
-    textAlign: "center",
-    lineHeight: "1.6",
-    margin: "0 0 20px 0",
-  },
-  successInfo: {
-    backgroundColor: "#f0fdf4",
-    border: "1px solid #86efac",
-    borderRadius: "8px",
-    padding: "14px",
-    marginBottom: "20px",
-  },
-  code: {
-    display: "block",
-    backgroundColor: "#dcfce7",
-    padding: "8px 12px",
-    borderRadius: "6px",
-    fontSize: "13px",
-    color: "#16a34a",
-    wordBreak: "break-all",
-  },
-};

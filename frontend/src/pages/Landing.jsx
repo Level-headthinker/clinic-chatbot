@@ -45,10 +45,14 @@ export default function Landing() {
 
       <section className="landing-hero">
         <div className="hero-copy">
-          <h1>AI receptionist for Pakistani clinics</h1>
+          <div className="hero-eyebrow">
+            <Bot size={13} />
+            AI-powered clinic management
+          </div>
+          <h1>The <span>smart receptionist</span> your clinic deserves</h1>
           <p>
-            Capture patient leads, book appointments in Urdu or English, manage
-            doctors, visits, and billing from one simple clinic dashboard.
+            Capture leads, book appointments in Urdu or English, manage doctors,
+            visits, and billing — all from one clinic dashboard.
           </p>
           <div className="hero-actions">
             <button className="btn btn-primary" onClick={() => navigate("/register")}>

@@ -32,10 +32,14 @@ export function ToastProvider({ children }) {
           const Icon = ICONS[toast.type] || Info;
           return (
             <div key={toast.id} className={`toast toast-${toast.type}`}>
-              <Icon size={18} />
-              <span>{toast.message}</span>
+              <div className="toast-icon">
+                <Icon size={14} />
+              </div>
+              <div className="toast-body">
+                <p className="toast-msg">{toast.message}</p>
+              </div>
               <button
-                className="icon-btn toast-close"
+                className="toast-close"
                 onClick={() => removeToast(toast.id)}
                 aria-label="Close notification"
               >

@@ -12,8 +12,8 @@ export default function Login() {
   const { notify } = useToast();
   const navigate = useNavigate();
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setLoading(true);
     try {
       await login(email, password);
@@ -28,52 +28,58 @@ export default function Login() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 24 }}>
-          <div className="brand-mark">
-            <Stethoscope size={22} />
+        <div className="auth-logo">
+          <div className="auth-logo-mark">
+            <Stethoscope size={20} color="#fff" />
           </div>
           <div>
-            <h1 style={{ fontSize: 28 }}>ClinicBot</h1>
-            <p style={{ margin: 0 }}>Admin dashboard login</p>
+            <h1 style={{ fontSize: 20, marginBottom: 1 }}>ClinicBot</h1>
+            <p style={{ fontSize: 12, margin: 0 }}>Admin dashboard</p>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
-          <label>
-            <span className="metric-label">Email</span>
+        <h1 style={{ fontSize: 22, marginBottom: 6 }}>Welcome back</h1>
+        <p style={{ marginBottom: 24 }}>Sign in to your clinic account.</p>
+
+        <form onSubmit={handleSubmit} className="form-stack">
+          <div className="field">
+            <label>Email address</label>
             <input
               className="input"
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@yourclinic.com"
               required
-              style={{ width: "100%", marginTop: 6 }}
+              autoFocus
             />
-          </label>
+          </div>
 
-          <label>
-            <span className="metric-label">Password</span>
+          <div className="field">
+            <label>Password</label>
             <input
               className="input"
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Minimum 6 characters"
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password"
               required
-              style={{ width: "100%", marginTop: 6 }}
             />
-          </label>
+          </div>
 
-          <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? "Logging in..." : "Login"}
-            <ArrowRight size={16} />
+          <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%", justifyContent: "center", minHeight: 42 }}>
+            {loading ? "Signing in…" : "Sign in"}
+            {!loading && <ArrowRight size={16} />}
           </button>
         </form>
 
-        <p style={{ textAlign: "center", marginBottom: 0 }}>
-          New clinic?{" "}
-          <button className="btn btn-secondary" onClick={() => navigate("/register")}>
+        <p style={{ textAlign: "center", marginTop: 20, fontSize: 13 }}>
+          No account yet?{" "}
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: 13, padding: "4px 10px", minHeight: "auto" }}
+            onClick={() => navigate("/register")}
+          >
             Register free
           </button>
         </p>

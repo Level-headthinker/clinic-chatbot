@@ -4,7 +4,11 @@
       "Bash(python -m alembic init alembic)",
       "Bash(npm start *)",
       "Bash(mkdir -p \"r:\\\\connect-api\\\\backend\\\\app\\\\models\" \"r:\\\\connect-api\\\\backend\\\\app\\\\routers\" \"r:\\\\connect-api\\\\backend\\\\app\\\\services\")",
-      "Bash(mkdir -p \"r:\\\\connect-api\\\\frontend\\\\src\\\\api\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\context\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\components\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\pages\" \"r:\\\\connect-api\\\\frontend\\\\public\")"
+      "Bash(mkdir -p \"r:\\\\connect-api\\\\frontend\\\\src\\\\api\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\context\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\components\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\pages\" \"r:\\\\connect-api\\\\frontend\\\\public\")",
+      "Bash(venv/Scripts/pip.exe install *)",
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(nohup venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload)",
+      "Bash(curl -s http://127.0.0.1:8000/health)"
     ],
     "additionalDirectories": [
       "r:\\connect-api\\backend\\app",

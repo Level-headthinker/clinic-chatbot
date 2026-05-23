@@ -212,10 +212,20 @@ def _handle_message(wa_from: str, text: str, phone_number_id: str):
 
         bot_name = branch.bot_name or tenant.bot_name or "ClinicBot"
         welcome_msg = branch.welcome_message or tenant.welcome_message or ""
+
+        phone_val = branch.phone if branch.phone else "Not configured"
+        hours_val = branch.working_hours if branch.working_hours else "Not configured"
+        address_parts = [p for p in [branch.address, branch.city] if p]
+        address_val = ", ".join(address_parts) if address_parts else "Not configured"
+
         clinic_info = (
-            f"Clinic Name: {tenant.name}\nBot Name: {bot_name}\n"
+            f"Clinic Name: {tenant.name}\n"
+            f"Bot Name: {bot_name}\n"
             f"Welcome Message: {welcome_msg}\n"
-            f"Clinic Timings: Monday to Saturday, 9am to 9pm\nEmergency: Call 1122"
+            f"Clinic Phone: {phone_val}\n"
+            f"Clinic Address: {address_val}\n"
+            f"Clinic Timings: {hours_val}\n"
+            f"Emergency: Call 1122"
         )
 
         reply = get_ai_response(

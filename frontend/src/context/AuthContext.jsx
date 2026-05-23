@@ -87,7 +87,7 @@ export const AuthProvider = ({ children }) => {
       branch_slug,
       user_name,
       is_superadmin,
-      role: response.data.role || "admin",
+      role: response.data.role,      // never default — use exactly what the backend sends
       doctor_id: response.data.doctor_id || null,
     };
 

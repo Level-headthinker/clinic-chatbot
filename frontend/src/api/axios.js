@@ -20,8 +20,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.clear();
+    const isLoginRequest = error.config?.url?.includes("/auth/login");
+    // Only auto-logout on 401 from non-login endpoints (expired token).
+    // Never intercept the login call itself — let the catch block in Login.jsx handle it.
+    if (error.response?.status === 401 && !isLoginRequest) {
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("user");
       window.location.href = "/login";
     }
     return Promise.reject(error);

@@ -38,9 +38,9 @@ function ProtectedRoute({ children }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" />;
-  // Doctors have their own portal — redirect them away from admin pages
-  if (user.role === "doctor") return <Navigate to="/doctor" />;
+  if (!user) return <Navigate to="/login" replace />;
+  // Safety net: doctor accidentally on an admin route → send to doctor portal
+  if (user.role === "doctor") return <Navigate to="/doctor" replace />;
   return children;
 }
 
@@ -58,8 +58,8 @@ function DoctorRoute({ children }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" />;
-  if (user.role !== "doctor") return <Navigate to="/dashboard" />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "doctor") return <Navigate to="/dashboard" replace />;
   return children;
 }
 

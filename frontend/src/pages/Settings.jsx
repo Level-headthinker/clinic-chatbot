@@ -17,6 +17,7 @@ const defaultForm = {
   branch_city: "",
   branch_phone: "",
   branch_timezone: "Asia/Karachi",
+  branch_working_hours: "",
 };
 
 export default function Settings() {
@@ -145,6 +146,12 @@ export default function Settings() {
             <label>Address</label>
             <input className="input" value={form.branch_address || ""} onChange={set("branch_address")}
               placeholder="123 Main Street, Model Town" />
+          </div>
+          <div className="field">
+            <label>Working Hours</label>
+            <input className="input" value={form.branch_working_hours || ""} onChange={set("branch_working_hours")}
+              placeholder="Mon–Sat 9am–9pm, Sunday closed" />
+            <p className="field-hint">The bot uses this to answer patient questions about clinic hours.</p>
           </div>
           <div className="field">
             <label>Branch Welcome Message <span style={{ color: "var(--muted)", fontWeight: 400 }}>(overrides clinic message)</span></label>

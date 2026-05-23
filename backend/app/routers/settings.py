@@ -24,6 +24,7 @@ class ClinicSettings(BaseModel):
     branch_city: Optional[str] = None
     branch_phone: Optional[str] = None
     branch_timezone: Optional[str] = None
+    branch_working_hours: Optional[str] = None
 
 
 @router.get("")
@@ -56,6 +57,7 @@ def get_settings(
         "branch_phone": branch.phone if branch else None,
         "branch_timezone": branch.timezone if branch else "Asia/Karachi",
         "branch_slug": branch.slug if branch else None,
+        "branch_working_hours": branch.working_hours if branch else None,
     }
 
 
@@ -102,6 +104,8 @@ def update_settings(
             branch.phone = data.branch_phone.strip() or None
         if data.branch_timezone is not None:
             branch.timezone = data.branch_timezone or "Asia/Karachi"
+        if data.branch_working_hours is not None:
+            branch.working_hours = data.branch_working_hours.strip() or None
 
     db.commit()
     return {"message": "Settings saved."}

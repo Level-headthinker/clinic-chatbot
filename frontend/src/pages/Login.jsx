@@ -16,10 +16,18 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
-      navigate("/dashboard");
-    } catch {
-      notify("Invalid email or password.", "error");
+      const data = await login(email, password);
+      // Navigate based on the role the backend actually returned — never guess
+      navigate(data.role === "doctor" ? "/doctor" : "/dashboard", { replace: true });
+    } catch (err) {
+      const msg =
+        err.response?.data?.detail ||
+        (err.response?.status === 429
+          ? "Too many attempts. Please wait a few minutes."
+          : err.response?.status === 403
+          ? "Your clinic account has been disabled. Contact support."
+          : "Invalid email or password.");
+      notify(msg, "error");
     } finally {
       setLoading(false);
     }

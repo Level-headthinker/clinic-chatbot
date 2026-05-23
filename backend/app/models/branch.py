@@ -18,6 +18,7 @@ class Branch(Base):
     city = Column(String(100), nullable=True)
     phone = Column(String(50), nullable=True)
     timezone = Column(String(50), default="Asia/Karachi")
+    working_hours = Column(Text, nullable=True)
 
     # Branch-level chatbot overrides (fall back to tenant settings if null)
     bot_name = Column(String(100), nullable=True)

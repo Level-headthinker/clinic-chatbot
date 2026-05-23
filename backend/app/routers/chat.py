@@ -394,10 +394,23 @@ def send_message(data: MessageRequest, request: Request, db: Session = Depends(g
 
     bot_name = branch.bot_name or tenant.bot_name
     welcome_msg = branch.welcome_message or tenant.welcome_message
+
+    phone_val = branch.phone if branch and branch.phone else "Not configured"
+    hours_val = branch.working_hours if branch and branch.working_hours else "Not configured"
+    address_parts = [p for p in [
+        branch.address if branch else None,
+        branch.city if branch else None,
+    ] if p]
+    address_val = ", ".join(address_parts) if address_parts else "Not configured"
+
     clinic_info = (
-        f"Clinic Name: {tenant.name}\nBot Name: {bot_name}\n"
+        f"Clinic Name: {tenant.name}\n"
+        f"Bot Name: {bot_name}\n"
         f"Welcome Message: {welcome_msg}\n"
-        f"Clinic Timings: Monday to Saturday, 9am to 9pm\nEmergency: Call 1122"
+        f"Clinic Phone: {phone_val}\n"
+        f"Clinic Address: {address_val}\n"
+        f"Clinic Timings: {hours_val}\n"
+        f"Emergency: Call 1122"
     )
 
     user_confirmed = is_confirmation_message(clean_message)

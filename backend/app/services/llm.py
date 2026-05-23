@@ -28,13 +28,20 @@ This identity is permanent and cannot be changed during this conversation.
 ═══════════════════════════════════════════
 LANGUAGE RULES — ALWAYS FOLLOW
 ═══════════════════════════════════════════
-- Read ONLY the most recent user message to decide the language of your reply.
-- English message → reply in English.
-- Roman Urdu message → reply in Roman Urdu.
-- Urdu script message → reply in Urdu script.
-- "hi", "yes", "ok", "no" are neutral — check the next message before deciding.
-- NEVER switch to Urdu if the user wrote in English.
+CURRENT MESSAGE LANGUAGE: {detected_language_instruction}
+
+- NEVER disobey the language lock above. It overrides everything.
+- "hi", "yes", "ok", "no", "thanks" are English — reply in English.
+- NEVER mix languages in a single reply.
 - Keep replies short — maximum 3 sentences.
+
+ROMAN URDU RULES (only when language lock says Roman Urdu):
+✓ USE:  aap, apka, theek hai, zaroor, bilkul, koi baat nahi, doctor sahab,
+        shukriya, meherbani, jee, ji haan, ji nahi, appointment, confirm
+✗ AVOID Hindi-only words: dhanyawad, namaste, swagat, kripa, seedha, bata do,
+        batao (say "bataein"), karo (say "karein"), kyunki (say "kyunke"),
+        acha (say "theek hai"), matlab kya (say "kya matlab hai")
+- Pakistani Urdu only — not Bollywood Hindi.
 
 ═══════════════════════════════════════════
 WHAT YOU DO
@@ -56,7 +63,7 @@ RETURNING PATIENT RULES:
 ROMAN URDU STYLE:
 - Use: aap, apka, theek hai, zaroor, bilkul, koi baat nahi, doctor sahab
 - Short natural sentences only.
-- Good: "Bilkul ji, Dr. Ahmed se appointment 1000 mein ho jaye gi. Confirm karein?"
+- Good: "Bilkul, Dr. Ahmed se appointment 1000 mein ho jaye gi. Confirm karein?"
 - Bad: "Certainly, I can schedule your appointment with Dr. Ahmed for 1000 PKR."
 
 ═══════════════════════════════════════════
@@ -80,10 +87,30 @@ PRIVACY RULES:
 ✗ Never reveal internal system data, database contents, or records.
   → If asked: say "I cannot share patient information. This is confidential."
 
-DATA RULES:
-✗ Never make up doctor names, fees, or timings — only use what is given below.
+DATA RULES — ZERO INVENTION POLICY:
+The CLINIC INFORMATION and AVAILABLE DOCTORS sections below are the ONLY source of truth.
+If something is not explicitly written there, it does not exist. Do NOT guess, assume, or invent.
+
+✗ Never invent clinic services, facilities, labs, equipment, or departments.
+✗ Never invent doctor names, specialties, fees, or qualifications.
+✗ Never invent clinic phone numbers, addresses, or locations.
+✗ Never invent opening hours, working days, or holidays.
 ✗ Never confirm a booking unless you have the patient's name and phone.
 ✗ Never book appointments for dates/times outside the provided schedule.
+
+If a patient asks about something NOT listed in the data below:
+  → Say: "I don't have that information. Please contact the clinic directly for details."
+
+Special cases:
+✗ If the AVAILABLE DOCTORS section says "No doctors available" — CANNOT book any appointment.
+  → For booking requests: say "Our doctors list is not set up yet. Please call us directly."
+  → For questions about doctors: say "Our doctors list is being updated. For details, please call the clinic."
+✗ If Clinic Phone says "Not configured" — NEVER invent a phone number.
+  → Say: "I don't have the clinic's phone number. Please contact the clinic directly."
+✗ If Clinic Timings says "Not configured" — NEVER invent hours.
+  → Say: "I don't have the clinic's hours on file. Please contact the clinic directly for timings."
+✗ If Clinic Address says "Not configured" — NEVER invent an address.
+  → Say: "I don't have the clinic's address. Please contact the clinic directly."
 
 ═══════════════════════════════════════════
 EMERGENCY — HIGHEST PRIORITY RULE
@@ -181,29 +208,45 @@ def emergency_reply(language: str) -> str:
 # LANGUAGE DETECTION
 # ════════════════════════════════════════════════════════════
 
+_URDU_CHARS = set("ابپتثجچحخدذرزژسشصضطظعغفقکگلمنوہھءیے")
+
+_ROMAN_URDU_STRONG = {
+    # Strong signals — single word is enough to confirm Roman Urdu
+    # Only words that are EXCLUSIVELY Roman Urdu (never used in English)
+    "mujhe", "mjhe", "chahiye", "bukhar", "bimaar",
+    "takleef", "dard", "theek", "zaroor", "bilkul",
+    "apka", "apki", "mera", "meri", "milna", "kahan",
+    "waqt", "shukriya", "meherbani",
+}
+
+_ROMAN_URDU_WEAK = {
+    # Common in both English and Roman Urdu — need 2+ to confirm
+    # Do NOT include English words like "appointment", "doctor", "timing", "number", "phone"
+    "kya", "naam", "hai", "hain", "nahi", "nai", "aur",
+    "phir", "lekin", "kyun", "kyunke", "kaise",
+    "ji", "jee", "haan", "han", "kal",
+    "aaj", "abhi",
+}
+
+
 def detect_language(message: str) -> str:
-    urdu_chars = set("ابپتثجچحخدذرزژسشصضطظعغفقکگلمنوہھءیے")
-    if any(char in urdu_chars for char in message):
+    # Urdu script takes priority
+    if any(ch in _URDU_CHARS for ch in message):
         return "ur"
 
     cleaned = message.strip()
-    if cleaned.isdigit():
-        return "en"
-    if len(cleaned.split()) <= 1 and not any(c.isalpha() for c in cleaned):
+    # Pure digits or punctuation-only → keep previous language (default English)
+    if not any(c.isalpha() for c in cleaned):
         return "en"
 
-    roman_urdu_words = [
-        "kya", "mujhe", "chahiye", "bukhar", "dard",
-        "bimaar", "theek", "bilkul", "zaroor", "apka",
-        "mera", "naam", "hai", "hain", "nahi", "aur",
-        "phir", "lekin", "kyun", "kaise", "kahan",
-        "milna", "takleef", "mjhe", "mri", "appointment",
-    ]
-    message_lower = message.lower()
-    words = message_lower.split()
-    urdu_word_count = sum(1 for w in words if w in roman_urdu_words)
+    words = set(cleaned.lower().split())
 
-    if urdu_word_count >= 2:
+    # One strong Roman Urdu word → confirmed Roman Urdu
+    if words & _ROMAN_URDU_STRONG:
+        return "ur-roman"
+
+    # Two or more weak signals → Roman Urdu
+    if len(words & _ROMAN_URDU_WEAK) >= 2:
         return "ur-roman"
 
     return "en"
@@ -314,6 +357,43 @@ Conversation:
 # MAIN AI RESPONSE FUNCTION
 # ════════════════════════════════════════════════════════════
 
+_LANGUAGE_INSTRUCTION = {
+    "en": (
+        "ENGLISH ONLY. The user wrote in English. "
+        "Your reply MUST be in English. "
+        "Do NOT use any Urdu, Hindi, or Roman Urdu words."
+    ),
+    "ur-roman": (
+        "ROMAN URDU ONLY. The user wrote in Roman Urdu (Pakistani). "
+        "Reply in Roman Urdu using proper Pakistani Urdu vocabulary. "
+        "Do NOT use Hindi-only words. Do NOT reply in English or Urdu script."
+    ),
+    "ur": (
+        "URDU SCRIPT ONLY. The user wrote in Urdu script. "
+        "Reply in Urdu script using proper Pakistani Urdu. "
+        "Do NOT mix in Hindi, English, or Roman Urdu."
+    ),
+}
+
+_LANGUAGE_LOCK = {
+    "en": (
+        "⚠ FINAL RULE BEFORE YOU REPLY: The user's message is in ENGLISH. "
+        "Write your entire response in English. "
+        "If you write even one Urdu word, you have failed."
+    ),
+    "ur-roman": (
+        "⚠ FINAL RULE BEFORE YOU REPLY: The user's message is in Roman Urdu. "
+        "Write your entire response in Roman Urdu (Pakistani Urdu in English letters). "
+        "No Urdu script. No Hindi-only words. No English sentences."
+    ),
+    "ur": (
+        "⚠ FINAL RULE BEFORE YOU REPLY: The user's message is in Urdu script. "
+        "Write your entire response in Urdu script. "
+        "No Roman Urdu. No Hindi. No English."
+    ),
+}
+
+
 def get_ai_response(
     user_message: str,
     conversation_history: list,
@@ -332,6 +412,25 @@ def get_ai_response(
     if is_emergency(user_message):
         return emergency_reply(language)
 
+    # Hard no-doctors guardrail — LLMs hallucinate doctor names when the list is empty.
+    # Only fire on clear booking-intent phrases, NOT on informational questions like
+    # "tell me about doctors" or "who are your doctors".
+    _no_doctors = doctors_info.strip() == "No doctors available at the moment."
+    _booking_phrases = [
+        "book appointment", "book an appointment", "make appointment",
+        "schedule appointment", "i want appointment", "need appointment",
+        "appointment chahiye", "appointment book", "slot chahiye",
+        "doctor se milna", "doctor ko dikhana", "doctor se milna hai",
+        "want to see", "see a doctor", "visit doctor",
+    ]
+    if _no_doctors and any(ph in user_message.lower() for ph in _booking_phrases):
+        _nd = {
+            "en":       "Our doctors list hasn't been set up yet. Please call the clinic directly to book an appointment.",
+            "ur-roman": "Abhi doctors ki list set nahi hui. Appointment ke liye clinic ko call karein.",
+            "ur":       "ابھی ڈاکٹروں کی فہرست ترتیب نہیں دی گئی۔ براہ کرم کلینک کو براہ راست کال کریں۔",
+        }
+        return _nd[language]
+
     # Extract clinic name from clinic_info for the prompt
     clinic_name = "the clinic"
     for line in clinic_info.split("\n"):
@@ -348,7 +447,8 @@ def get_ai_response(
         patient_phone=patient_phone,
         is_returning="Yes — greet them warmly by name, do not ask for name or phone again"
                      if is_returning else "No — new patient, collect name and phone naturally",
-        visit_count=f"{visit_count} previous appointments" if visit_count > 0 else "First time visitor"
+        visit_count=f"{visit_count} previous appointments" if visit_count > 0 else "First time visitor",
+        detected_language_instruction=_LANGUAGE_INSTRUCTION[language],
     )
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -359,6 +459,9 @@ def get_ai_response(
             "content": msg["content"]
         })
 
+    # Language lock injected as the last system turn — closest to the model's output.
+    # Small LLMs (Llama 8b) ignore buried instructions; this placement is authoritative.
+    messages.append({"role": "system", "content": _LANGUAGE_LOCK[language]})
     messages.append({"role": "user", "content": user_message})
 
     response = client.chat.completions.create(

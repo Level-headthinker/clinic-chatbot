@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle, Clock, DollarSign, Download, FileText, Plus, TrendingUp } from "lucide-react";
+import { CheckCircle, Clock, DollarSign, FileText, Plus, Printer, TrendingUp } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import EmptyState from "../components/EmptyState";
@@ -68,6 +68,109 @@ function exportInvoicePDF(invoice) {
   });
 }
 
+function printReceipt(invoice, clinic) {
+  const clinicName = clinic?.clinic_name || "Clinic";
+  const phone = clinic?.branch_phone || "";
+  const address = [clinic?.branch_address, clinic?.branch_city].filter(Boolean).join(", ");
+  const date = new Date(invoice.created_at).toLocaleDateString("en-PK", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+  const time = new Date(invoice.created_at).toLocaleTimeString("en-PK", {
+    hour: "2-digit", minute: "2-digit",
+  });
+
+  const items = [
+    { desc: "Consultation Fee", amount: invoice.consultation_fee },
+    ...(invoice.additional_charges || []).map((c) => ({ desc: c.description, amount: c.amount })),
+  ];
+
+  const itemRows = items.map((i) => `
+    <tr>
+      <td>${i.desc}</td>
+      <td class="right">PKR ${i.amount.toLocaleString()}</td>
+    </tr>`).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Receipt ${invoice.invoice_number}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Courier New', monospace; font-size: 13px; color: #111;
+         width: 320px; margin: 0 auto; padding: 16px; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .clinic-name { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+  .divider { border: none; border-top: 1px dashed #555; margin: 10px 0; }
+  .divider-solid { border: none; border-top: 2px solid #111; margin: 10px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 3px 0; vertical-align: top; }
+  .total-row td { font-weight: bold; font-size: 14px; padding-top: 6px; }
+  .balance-row td { color: #c00; font-weight: bold; }
+  .paid-row td { color: #0a0; }
+  .label { color: #555; font-size: 11px; margin-bottom: 2px; }
+  .thank-you { font-size: 14px; font-weight: bold; margin-top: 4px; }
+  @media print {
+    @page { margin: 0; size: 80mm auto; }
+    body { width: 100%; padding: 8px; }
+  }
+</style>
+</head>
+<body>
+  <div class="center">
+    <p class="clinic-name">${clinicName.toUpperCase()}</p>
+    ${address ? `<p>${address}</p>` : ""}
+    ${phone ? `<p>${phone}</p>` : ""}
+  </div>
+
+  <hr class="divider-solid">
+
+  <table>
+    <tr><td class="label">Receipt No.</td><td class="right">${invoice.invoice_number}</td></tr>
+    <tr><td class="label">Date</td><td class="right">${date} ${time}</td></tr>
+  </table>
+
+  <hr class="divider">
+
+  <table>
+    <tr><td class="label">Patient</td><td class="right">${invoice.patient_name}</td></tr>
+    <tr><td class="label">Phone</td><td class="right">${invoice.patient_phone}</td></tr>
+  </table>
+
+  <hr class="divider">
+
+  <table>${itemRows}</table>
+
+  <hr class="divider">
+
+  <table>
+    <tr class="total-row">
+      <td>TOTAL</td><td class="right">PKR ${invoice.total_amount.toLocaleString()}</td>
+    </tr>
+    <tr class="paid-row">
+      <td>PAID</td><td class="right">PKR ${invoice.paid_amount.toLocaleString()}</td>
+    </tr>
+    ${invoice.balance > 0 ? `<tr class="balance-row"><td>BALANCE DUE</td><td class="right">PKR ${invoice.balance.toLocaleString()}</td></tr>` : ""}
+  </table>
+
+  ${invoice.payment_method ? `<hr class="divider"><p class="label">Payment Method: <strong>${invoice.payment_method.toUpperCase()}</strong></p>` : ""}
+
+  <hr class="divider-solid">
+  <div class="center">
+    <p class="thank-you">Thank you for visiting!</p>
+    <p style="font-size:11px; color:#777; margin-top:4px;">Powered by ClinicBot</p>
+  </div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=380,height=600");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { win.print(); }, 400);
+}
+
 export default function Billing() {
   const [invoices, setInvoices] = useState([]);
   const [stats, setStats] = useState(null);
@@ -76,17 +179,20 @@ export default function Billing() {
   const [expandedId, setExpandedId] = useState(null);
   const [chargeForm, setChargeForm] = useState({ description: "", amount: "" });
   const [showChargeId, setShowChargeId] = useState(null);
+  const [clinicInfo, setClinicInfo] = useState(null);
   const { notify } = useToast();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [invRes, statsRes] = await Promise.all([
+      const [invRes, statsRes, settingsRes] = await Promise.all([
         api.get(filter ? `/billing/?payment_status=${filter}` : "/billing/"),
         api.get("/billing/stats"),
+        api.get("/settings"),
       ]);
       setInvoices(invRes.data);
       setStats(statsRes.data);
+      setClinicInfo(settingsRes.data);
     } catch {
       notify("Failed to load billing data.", "error");
     } finally {
@@ -98,14 +204,17 @@ export default function Billing() {
     fetchData();
   }, [fetchData]);
 
-  const updatePayment = async (id, paidAmount, paymentMethod) => {
+  const updatePayment = async (invoice, paidAmount, paymentMethod) => {
     try {
-      await api.put(`/billing/${id}/payment`, {
+      await api.put(`/billing/${invoice.id}/payment`, {
         paid_amount: parseInt(paidAmount),
         payment_method: paymentMethod,
       });
       notify("Payment updated.", "success");
-      fetchData();
+      await fetchData();
+      // Auto-open print receipt after marking paid
+      const updated = { ...invoice, paid_amount: parseInt(paidAmount), payment_method: paymentMethod, balance: 0 };
+      printReceipt(updated, clinicInfo);
     } catch {
       notify("Failed to update payment.", "error");
     }
@@ -179,13 +288,14 @@ export default function Billing() {
                   </div>
                   <div className="action-row" style={{ justifyContent: "flex-end" }}>
                     <span className={`badge ${paymentBadge(invoice.payment_status)}`}>{invoice.payment_status}</span>
+                    <button className="icon-btn" title="Print receipt" onClick={() => printReceipt(invoice, clinicInfo)}><Printer size={16} /></button>
                     <button className="icon-btn" title="Download PDF" onClick={() => exportInvoicePDF(invoice)}><FileText size={16} /></button>
                   </div>
                 </div>
 
                 <div className="action-row">
                   {invoice.payment_status !== "paid" && (
-                    <button className="btn btn-primary" onClick={() => updatePayment(invoice.id, invoice.total_amount, "cash")}>
+                    <button className="btn btn-primary" onClick={() => updatePayment(invoice, invoice.total_amount, "cash")}>
                       Mark paid
                     </button>
                   )}

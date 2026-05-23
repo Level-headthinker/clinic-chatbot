@@ -11,8 +11,10 @@ from datetime import datetime
 from app.database import get_db
 from app.models.appointment import Appointment
 from app.models.doctor import Doctor
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import require_admin_user
+from app.services.messaging import send_whatsapp
 
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
@@ -122,6 +124,7 @@ def list_appointments(
             "slot_datetime": str(a.slot_datetime),
             "status": a.status,
             "notes": a.notes,
+            "reminder_sent": a.reminder_sent,
             "created_at": str(a.created_at)
         }
         for a in appointments
@@ -158,6 +161,46 @@ def update_appointment(
 
     db.commit()
     return {"message": "Appointment updated successfully"}
+
+
+@router.post("/{appointment_id}/remind")
+def send_reminder(
+    appointment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.tenant_id == current_user.tenant_id,
+    ).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    doctor = db.query(Doctor).filter(Doctor.id == appointment.doctor_id).first()
+
+    clinic_name = tenant.name if tenant else "the clinic"
+    doctor_name = doctor.name if doctor else "your doctor"
+    if doctor_name and not doctor_name.lower().startswith("dr"):
+        doctor_name = f"Dr. {doctor_name}"
+
+    slot_str = appointment.slot_datetime.strftime("%A, %d %B at %I:%M %p")
+    message = (
+        f"Hi {appointment.patient_name}! 👋\n\n"
+        f"This is a reminder from {clinic_name}.\n"
+        f"Your appointment with {doctor_name} is scheduled for:\n"
+        f"📅 {slot_str}\n\n"
+        f"Please arrive 10 minutes early. "
+        f"To reschedule, reply to this message or call us directly."
+    )
+
+    sent = send_whatsapp(appointment.patient_phone, message)
+    if not sent:
+        raise HTTPException(status_code=503, detail="WhatsApp not configured. Add META credentials in .env.")
+
+    appointment.reminder_sent = True
+    db.commit()
+    return {"message": "Reminder sent successfully."}
 
 
 @router.delete("/{appointment_id}")

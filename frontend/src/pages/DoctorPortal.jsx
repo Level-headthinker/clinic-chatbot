@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Calendar, ClipboardList, LogOut, Moon, Sun, Users } from "lucide-react";
+import { Calendar, ClipboardList, LogOut, Moon, Save, Sun, Users, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
@@ -7,10 +7,12 @@ import { useToast } from "../context/ToastContext";
 import { SkeletonBlock } from "../components/Skeleton";
 
 const TABS = [
-  { key: "schedule", label: "My Schedule", icon: Calendar },
-  { key: "patients", label: "My Patients", icon: Users },
-  { key: "profile",  label: "Profile",     icon: ClipboardList },
+  { key: "schedule",     label: "My Schedule",   icon: Calendar },
+  { key: "patients",     label: "My Patients",   icon: Users },
+  { key: "profile",      label: "Profile",       icon: ClipboardList },
 ];
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function statusBadge(s) {
   if (s === "confirmed" || s === "completed") return { bg: "#d1fae5", color: "#065f46", label: s };
@@ -164,9 +166,9 @@ export default function DoctorPortal() {
           <SkeletonBlock className="skeleton-table" />
         ) : (
           <>
-            {tab === "schedule" && <ScheduleTab schedule={schedule} />}
+            {tab === "schedule" && <ScheduleTab schedule={schedule} onNotesUpdated={load} />}
             {tab === "patients" && <PatientsTab patients={patients} />}
-            {tab === "profile"  && <ProfileTab doctor={doctor} />}
+            {tab === "profile"  && <ProfileTab doctor={doctor} onAvailabilityUpdated={load} />}
           </>
         )}
       </div>
@@ -175,7 +177,7 @@ export default function DoctorPortal() {
 }
 
 // ── Schedule tab ──────────────────────────────────────────────────────────────
-function ScheduleTab({ schedule }) {
+function ScheduleTab({ schedule, onNotesUpdated }) {
   if (!schedule) return null;
   const { today, upcoming } = schedule;
 
@@ -184,50 +186,109 @@ function ScheduleTab({ schedule }) {
       <Section title="Today's Appointments" count={today.length} accent="#0d9488">
         {today.length === 0
           ? <Empty text="No appointments scheduled for today." />
-          : today.map((a) => <ApptRow key={a.id} appt={a} highlight />)
+          : today.map((a) => <ApptRow key={a.id} appt={a} highlight onNotesUpdated={onNotesUpdated} />)
         }
       </Section>
 
       <Section title="Upcoming (next 7 days)" count={upcoming.length} accent="#6366f1">
         {upcoming.length === 0
           ? <Empty text="No upcoming appointments this week." />
-          : upcoming.map((a) => <ApptRow key={a.id} appt={a} />)
+          : upcoming.map((a) => <ApptRow key={a.id} appt={a} onNotesUpdated={onNotesUpdated} />)
         }
       </Section>
     </div>
   );
 }
 
-function ApptRow({ appt, highlight }) {
+function ApptRow({ appt, highlight, onNotesUpdated }) {
+  const { notify } = useToast();
   const badge = statusBadge(appt.status);
   const dt = appt.slot_datetime ? new Date(appt.slot_datetime) : null;
+  const [expanded, setExpanded] = useState(false);
+  const [notes, setNotes] = useState(appt.notes || "");
+  const [saving, setSaving] = useState(false);
+
+  const saveNotes = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/doctor/appointments/${appt.id}/notes`, { notes });
+      notify("Notes saved.", "success");
+      if (onNotesUpdated) onNotesUpdated();
+    } catch {
+      notify("Failed to save notes.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 16,
-      padding: "12px 16px",
       background: highlight ? "rgba(13,148,136,0.05)" : "var(--surface-2)",
       borderRadius: 10, marginBottom: 8,
       borderLeft: highlight ? "3px solid #0d9488" : "3px solid transparent",
+      overflow: "hidden",
     }}>
-      <div style={{ minWidth: 52, textAlign: "center" }}>
-        <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--primary)" }}>
-          {dt ? dt.toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" }) : "—"}
-        </p>
-        {!highlight && dt && (
-          <p style={{ margin: 0, fontSize: 10, color: "var(--muted)" }}>
-            {dt.toLocaleDateString("en-PK", { weekday: "short", month: "short", day: "numeric" })}
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" }}
+        onClick={() => setExpanded((e) => !e)}
+      >
+        <div style={{ minWidth: 52, textAlign: "center" }}>
+          <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--primary)" }}>
+            {dt ? dt.toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" }) : "—"}
           </p>
-        )}
+          {!highlight && dt && (
+            <p style={{ margin: 0, fontSize: 10, color: "var(--muted)" }}>
+              {dt.toLocaleDateString("en-PK", { weekday: "short", month: "short", day: "numeric" })}
+            </p>
+          )}
+        </div>
+        <div style={{ flex: 1 }}>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{appt.patient_name}</p>
+          <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>
+            {appt.patient_phone}{appt.patient_concern ? ` · ${appt.patient_concern.slice(0, 50)}` : ""}
+          </p>
+          {notes && !expanded && (
+            <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--primary)", fontStyle: "italic" }}>
+              📝 {notes.slice(0, 60)}{notes.length > 60 ? "…" : ""}
+            </p>
+          )}
+        </div>
+        <span style={{ background: badge.bg, color: badge.color, borderRadius: 6, fontSize: 11, fontWeight: 700, padding: "3px 9px" }}>
+          {badge.label}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--muted)", userSelect: "none" }}>{expanded ? "▲" : "▼"}</span>
       </div>
-      <div style={{ flex: 1 }}>
-        <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{appt.patient_name}</p>
-        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>
-          {appt.patient_phone}{appt.patient_concern ? ` · ${appt.patient_concern.slice(0, 50)}` : ""}
-        </p>
-      </div>
-      <span style={{ background: badge.bg, color: badge.color, borderRadius: 6, fontSize: 11, fontWeight: 700, padding: "3px 9px" }}>
-        {badge.label}
-      </span>
+
+      {expanded && (
+        <div style={{ padding: "0 16px 14px", borderTop: "1px solid var(--line)" }}>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "10px 0 6px", fontWeight: 600 }}>CLINICAL NOTES</p>
+          <textarea
+            style={{
+              width: "100%", minHeight: 90, padding: "8px 10px",
+              border: "1px solid var(--line)", borderRadius: 8,
+              background: "var(--surface)", color: "var(--text)",
+              fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box",
+            }}
+            placeholder="Write clinical notes, diagnosis, follow-up instructions…"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+            <button
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: "var(--primary)", color: "#fff", border: "none",
+                borderRadius: 8, padding: "7px 16px", fontSize: 13, cursor: "pointer",
+                opacity: saving ? 0.7 : 1,
+              }}
+              onClick={saveNotes}
+              disabled={saving}
+            >
+              <Save size={14} /> {saving ? "Saving…" : "Save notes"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -273,38 +334,123 @@ function PatientsTab({ patients }) {
 }
 
 // ── Profile tab ───────────────────────────────────────────────────────────────
-function ProfileTab({ doctor }) {
+function ProfileTab({ doctor, onAvailabilityUpdated }) {
+  const { notify } = useToast();
+  const [timings, setTimings] = useState(doctor?.timings || []);
+  const [timingInput, setTimingInput] = useState({ day: "Monday", from: "09:00 AM", to: "05:00 PM" });
+  const [saving, setSaving] = useState(false);
+
   if (!doctor) return null;
+
+  const addTiming = () => {
+    if (timings.some((t) => t.day === timingInput.day)) {
+      setTimings((prev) => prev.map((t) => t.day === timingInput.day ? { ...timingInput } : t));
+    } else {
+      setTimings((prev) => [...prev, { ...timingInput }]);
+    }
+  };
+
+  const removeTiming = (day) => setTimings((prev) => prev.filter((t) => t.day !== day));
+
+  const saveAvailability = async () => {
+    setSaving(true);
+    try {
+      await api.put("/doctor/availability", { timings });
+      notify("Availability updated.", "success");
+      if (onAvailabilityUpdated) onAvailabilityUpdated();
+    } catch {
+      notify("Failed to save availability.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Section title="My Profile" accent="#0d9488">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16 }}>
-        <InfoCard label="Name" value={`Dr. ${doctor.name}`} />
-        <InfoCard label="Specialty" value={doctor.specialty} />
-        <InfoCard label="Qualification" value={doctor.qualification || "—"} />
-        <InfoCard label="Fee" value={doctor.fee || "—"} />
-      </div>
-      {doctor.bio && (
-        <div style={{ marginTop: 16, padding: 16, background: "var(--surface-2)", borderRadius: 10 }}>
-          <p style={{ margin: 0, fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>BIO</p>
-          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{doctor.bio}</p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <Section title="My Profile" accent="#0d9488">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16 }}>
+          <InfoCard label="Name" value={`Dr. ${doctor.name}`} />
+          <InfoCard label="Specialty" value={doctor.specialty} />
+          <InfoCard label="Qualification" value={doctor.qualification || "—"} />
+          <InfoCard label="Fee" value={doctor.fee || "—"} />
         </div>
-      )}
-      {doctor.timings?.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>CLINIC SCHEDULE</p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {doctor.timings.map((t, i) => (
-              <span key={i} style={{
+        {doctor.bio && (
+          <div style={{ marginTop: 16, padding: 16, background: "var(--surface-2)", borderRadius: 10 }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>BIO</p>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{doctor.bio}</p>
+          </div>
+        )}
+      </Section>
+
+      <Section title="My Availability" accent="#6366f1">
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+          Set the days and hours you are available. The chatbot uses this to show patients when they can book.
+        </p>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+          <select
+            style={{ padding: "7px 10px", border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", color: "var(--text)", fontSize: 13 }}
+            value={timingInput.day}
+            onChange={(e) => setTimingInput({ ...timingInput, day: e.target.value })}
+          >
+            {DAYS.map((d) => <option key={d}>{d}</option>)}
+          </select>
+          <input
+            style={{ padding: "7px 10px", border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", color: "var(--text)", fontSize: 13, width: 110 }}
+            placeholder="From e.g. 9:00 AM"
+            value={timingInput.from}
+            onChange={(e) => setTimingInput({ ...timingInput, from: e.target.value })}
+          />
+          <input
+            style={{ padding: "7px 10px", border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", color: "var(--text)", fontSize: 13, width: 110 }}
+            placeholder="To e.g. 5:00 PM"
+            value={timingInput.to}
+            onChange={(e) => setTimingInput({ ...timingInput, to: e.target.value })}
+          />
+          <button
+            style={{ padding: "7px 14px", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 8, cursor: "pointer", fontSize: 13, color: "var(--text)" }}
+            type="button" onClick={addTiming}
+          >
+            Add day
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+          {timings.length === 0
+            ? <p style={{ fontSize: 13, color: "var(--muted)" }}>No days added yet.</p>
+            : timings.map((t) => (
+              <span key={t.day} style={{
+                display: "flex", alignItems: "center", gap: 6,
                 background: "var(--primary-soft)", color: "var(--primary)",
                 borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
               }}>
                 {t.day} · {t.from} – {t.to}
+                <button
+                  type="button"
+                  onClick={() => removeTiming(t.day)}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--primary)", display: "flex" }}
+                >
+                  <X size={12} />
+                </button>
               </span>
-            ))}
-          </div>
+            ))
+          }
         </div>
-      )}
-    </Section>
+
+        <button
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            background: "var(--primary)", color: "#fff", border: "none",
+            borderRadius: 8, padding: "8px 18px", fontSize: 13, cursor: "pointer",
+            opacity: saving ? 0.7 : 1,
+          }}
+          onClick={saveAvailability}
+          disabled={saving}
+        >
+          <Save size={14} /> {saving ? "Saving…" : "Save availability"}
+        </button>
+      </Section>
+    </div>
   );
 }
 

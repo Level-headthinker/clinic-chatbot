@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, FilePlus2, List, Plus, Search, X } from "lucide-react";
+import { Bell, BellOff, CalendarDays, FilePlus2, List, Plus, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -192,6 +192,16 @@ export default function Appointments() {
     }
   };
 
+  const sendReminder = async (id) => {
+    try {
+      await api.post(`/appointments/${id}/remind`);
+      notify("Reminder sent via WhatsApp.", "success");
+      fetchAppointments();
+    } catch (err) {
+      notify(err?.response?.data?.detail || "Failed to send reminder.", "error");
+    }
+  };
+
   const openVisitModal = (appointment) => {
     setVisitModal(appointment);
     setVisitForm({
@@ -314,7 +324,7 @@ export default function Appointments() {
         ) : (
           <table className="responsive-table">
             <thead>
-              <tr>{["Patient", "Phone", "Concern", "Doctor", "Slot", "Status", "Actions"].map((h) => <th key={h}>{h}</th>)}</tr>
+              <tr>{["Patient", "Phone", "Concern", "Doctor", "Slot", "Status", "Reminder", "Actions"].map((h) => <th key={h}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {filtered.map((appointment) => (
@@ -325,6 +335,20 @@ export default function Appointments() {
                   <td data-label="Doctor">{appointment.doctor_name}</td>
                   <td data-label="Slot">{new Date(appointment.slot_datetime).toLocaleString()}</td>
                   <td data-label="Status"><span className={`badge ${badgeClass(appointment.status)}`}>{appointment.status}</span></td>
+                  <td data-label="Reminder">
+                    {appointment.reminder_sent
+                      ? <span className="badge badge-success" title="Reminder sent"><BellOff size={13} style={{ marginRight: 4 }} />Sent</span>
+                      : <button
+                          className="btn btn-secondary"
+                          style={{ fontSize: 12, padding: "4px 10px", minHeight: "auto" }}
+                          title="Send WhatsApp reminder"
+                          onClick={() => sendReminder(appointment.id)}
+                          disabled={appointment.status === "cancelled" || appointment.status === "completed"}
+                        >
+                          <Bell size={13} /> Remind
+                        </button>
+                    }
+                  </td>
                   <td data-label="Actions">
                     <div className="action-row" style={{ justifyContent: "flex-end" }}>
                       <select className="select" value={appointment.status} onChange={(e) => updateStatus(appointment.id, e.target.value)}>

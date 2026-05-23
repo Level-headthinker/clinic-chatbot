@@ -1,7 +1,10 @@
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
 from app.models.appointment import Appointment
@@ -113,6 +116,7 @@ def doctor_schedule(
             "patient_concern": a.patient_concern,
             "slot_datetime": a.slot_datetime.isoformat() if a.slot_datetime else None,
             "status": a.status,
+            "notes": a.notes or "",
         }
         if slot_date == today_str:
             today_appts.append(row)
@@ -154,3 +158,46 @@ def doctor_patients(
         })
 
     return patients
+
+
+class NotesUpdate(BaseModel):
+    notes: str
+
+
+@router.patch("/appointments/{appointment_id}/notes")
+def save_appointment_notes(
+    appointment_id: str,
+    data: NotesUpdate,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.doctor_id == current_user.doctor_id,
+    ).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+    appointment.notes = data.notes.strip()
+    db.commit()
+    return {"message": "Notes saved."}
+
+
+class AvailabilityUpdate(BaseModel):
+    timings: list
+
+
+@router.put("/availability")
+def update_availability(
+    data: AvailabilityUpdate,
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    doctor = db.query(Doctor).filter(Doctor.id == current_user.doctor_id).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+
+    doctor.timings = [dict(t) for t in data.timings]
+    flag_modified(doctor, "timings")
+    db.commit()
+    return {"message": "Availability updated."}

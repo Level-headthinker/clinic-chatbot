@@ -10,6 +10,7 @@ from app.models.appointment import Appointment
 from app.models.branch import Branch
 from app.models.chat import Lead
 from app.models.doctor import Doctor
+from app.models.follow_up import FollowUp
 from app.models.patient import Patient
 from app.models.user import User
 from app.services.auth import get_current_user
@@ -116,6 +117,34 @@ def dashboard_summary(
         .all()
     )
 
+    # ── Today's appointments (upcoming, ordered by slot time) ──
+    today_end = today_start + timedelta(days=1)
+    today_appt_list = (
+        appt_q()
+        .options(joinedload(Appointment.doctor))
+        .filter(
+            Appointment.slot_datetime >= today_start,
+            Appointment.slot_datetime < today_end,
+            Appointment.status.in_(["pending", "confirmed"]),
+        )
+        .order_by(Appointment.slot_datetime.asc())
+        .all()
+    )
+
+    # ── Due follow-ups (overdue + due today, pending) ──────────
+    due_followups = (
+        db.query(FollowUp)
+        .filter(
+            FollowUp.tenant_id == tenant_id,
+            FollowUp.status == "pending",
+            FollowUp.due_date <= today_end,
+            *([FollowUp.branch_id == branch_id] if branch_id else []),
+        )
+        .order_by(FollowUp.due_date.asc())
+        .limit(10)
+        .all()
+    )
+
     # ── Per-branch breakdown (tenant-level admins only) ───────
     branch_breakdown = []
     if branch_id is None:
@@ -205,6 +234,26 @@ def dashboard_summary(
                 "status": a.status,
             }
             for a in recent
+        ],
+        "today_appointments": [
+            {
+                "id": str(a.id),
+                "patient_name": a.patient_name,
+                "patient_phone": a.patient_phone,
+                "doctor_name": a.doctor.name if a.doctor else "—",
+                "slot_datetime": a.slot_datetime.isoformat() if a.slot_datetime else None,
+                "status": a.status,
+            }
+            for a in today_appt_list
+        ],
+        "due_followups": [
+            {
+                "id": str(f.id),
+                "title": f.title,
+                "due_date": f.due_date.isoformat(),
+                "overdue": f.due_date < now,
+            }
+            for f in due_followups
         ],
         "branches": branch_breakdown,
     }

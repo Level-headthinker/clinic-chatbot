@@ -6,6 +6,7 @@ const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [waking, setWaking] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -27,6 +28,9 @@ export const AuthProvider = ({ children }) => {
       }
       setUser(parsedUser);
 
+      // Show "waking up" message if server takes more than 5 seconds
+      const wakingTimer = setTimeout(() => setWaking(true), 5000);
+
       try {
         const response = await api.get("/auth/me");
         const refreshedUser = {
@@ -36,13 +40,21 @@ export const AuthProvider = ({ children }) => {
           branch_slug: response.data.branch_slug,
           user_name: response.data.full_name,
           is_superadmin: response.data.is_superadmin,
+          role: response.data.role,
+          doctor_id: response.data.doctor_id || null,
         };
         localStorage.setItem("user", JSON.stringify(refreshedUser));
         setUser(refreshedUser);
-      } catch {
-        localStorage.clear();
-        setUser(null);
+      } catch (err) {
+        if (err.response) {
+          // Server replied with an error (e.g. 401 invalid token) → log out
+          localStorage.clear();
+          setUser(null);
+        }
+        // No response = network error / Render cold start timeout → keep cached user
       } finally {
+        clearTimeout(wakingTimer);
+        setWaking(false);
         setLoading(false);
       }
     };
@@ -75,6 +87,8 @@ export const AuthProvider = ({ children }) => {
       branch_slug,
       user_name,
       is_superadmin,
+      role: response.data.role || "admin",
+      doctor_id: response.data.doctor_id || null,
     };
 
     localStorage.setItem("access_token", response.data.access_token);
@@ -93,7 +107,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, waking }}>
       {children}
     </AuthContext.Provider>
   );

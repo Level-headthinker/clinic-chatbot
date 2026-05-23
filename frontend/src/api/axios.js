@@ -3,6 +3,7 @@ import axios from "axios";
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL || "http://127.0.0.1:8000",
   withCredentials: true,
+  timeout: 90000, // 90s — allows Render free tier to wake from cold start
   headers: {
     "Content-Type": "application/json",
   },

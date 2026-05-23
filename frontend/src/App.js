@@ -18,30 +18,62 @@ import Voice from "./pages/Voice";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 import BookingPage from "./pages/BookingPage";
+import DoctorPortal from "./pages/DoctorPortal";
 import Landing from "./pages/Landing";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./context/ToastContext";
 import { SkeletonBlock } from "./components/Skeleton";
 
 function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, waking } = useAuth();
   if (loading) {
     return (
       <div className="app-main" style={{ marginLeft: 0 }}>
         <SkeletonBlock className="panel skeleton-table" />
+        {waking && (
+          <p style={{ textAlign: "center", color: "var(--muted)", marginTop: 16, fontSize: 14 }}>
+            Server is starting up, please wait a moment...
+          </p>
+        )}
       </div>
     );
   }
   if (!user) return <Navigate to="/login" />;
+  // Doctors have their own portal — redirect them away from admin pages
+  if (user.role === "doctor") return <Navigate to="/doctor" />;
   return children;
 }
 
-function SuperAdminRoute({ children }) {
-  const { user, loading } = useAuth();
+function DoctorRoute({ children }) {
+  const { user, loading, waking } = useAuth();
   if (loading) {
     return (
       <div className="app-main" style={{ marginLeft: 0 }}>
         <SkeletonBlock className="panel skeleton-table" />
+        {waking && (
+          <p style={{ textAlign: "center", color: "var(--muted)", marginTop: 16, fontSize: 14 }}>
+            Server is starting up, please wait a moment...
+          </p>
+        )}
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" />;
+  if (user.role !== "doctor") return <Navigate to="/dashboard" />;
+  return children;
+}
+
+function SuperAdminRoute({ children }) {
+  const { user, loading, waking } = useAuth();
+  if (loading) {
+    return (
+      <div className="app-main" style={{ marginLeft: 0 }}>
+        <SkeletonBlock className="panel skeleton-table" />
+        {waking && (
+          <p style={{ textAlign: "center", color: "var(--muted)", marginTop: 16, fontSize: 14 }}>
+            Server is starting up, please wait a moment...
+          </p>
+        )}
       </div>
     );
   }
@@ -75,6 +107,7 @@ export default function App() {
               <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/book/:slug" element={<BookingPage />} />
+              <Route path="/doctor" element={<DoctorRoute><DoctorPortal /></DoctorRoute>} />
               <Route path="/super" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />
             </Routes>
           </BrowserRouter>

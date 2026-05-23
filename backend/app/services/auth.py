@@ -88,6 +88,16 @@ def require_admin_user(current_user: User = Depends(get_current_user)):
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
 
+def require_doctor_user(current_user: User = Depends(get_current_user)):
+    """Doctor portal — only users with role='doctor' and a linked doctor_id."""
+    if current_user.role == "doctor" and current_user.doctor_id:
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Doctor access only",
+    )
+
+
 def require_tenant_admin(current_user: User = Depends(get_current_user)):
     """Tenant-level admin only — NOT branch admins. Used for branch creation/deletion."""
     if current_user.is_superadmin or current_user.role in ("admin", "superadmin"):

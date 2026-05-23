@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, FilePlus2, List, Plus, X } from "lucide-react";
+import { CalendarDays, FilePlus2, List, Plus, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -102,12 +102,24 @@ const initialVisitForm = {
   doctor_id: "",
 };
 
+const initialBookForm = {
+  patient_name: "",
+  patient_phone: "",
+  patient_concern: "",
+  doctor_id: "",
+  slot_datetime: "",
+};
+
 export default function Appointments() {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [view, setView] = useState("list"); // "list" | "calendar"
   const [visitModal, setVisitModal] = useState(null);
+  const [bookModal, setBookModal] = useState(false);
+  const [bookForm, setBookForm] = useState(initialBookForm);
+  const [booking, setBooking] = useState(false);
   const [doctors, setDoctors] = useState([]);
   const [saving, setSaving] = useState(false);
   const [visitForm, setVisitForm] = useState(initialVisitForm);
@@ -141,6 +153,34 @@ export default function Appointments() {
     fetchAppointments();
     fetchDoctors();
   }, [fetchAppointments, fetchDoctors]);
+
+  const bookAppointment = async () => {
+    if (!bookForm.patient_name || !bookForm.patient_phone || !bookForm.doctor_id || !bookForm.slot_datetime) {
+      notify("Please fill in all required fields.", "error");
+      return;
+    }
+    setBooking(true);
+    try {
+      await api.post("/appointments/book", {
+        ...bookForm,
+        slot_datetime: new Date(bookForm.slot_datetime).toISOString(),
+      });
+      notify("Appointment booked successfully.", "success");
+      setBookModal(false);
+      setBookForm(initialBookForm);
+      fetchAppointments();
+    } catch (err) {
+      notify(err?.response?.data?.detail || "Failed to book appointment.", "error");
+    } finally {
+      setBooking(false);
+    }
+  };
+
+  const filtered = appointments.filter((a) => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return a.patient_name?.toLowerCase().includes(s) || a.patient_phone?.includes(s);
+  });
 
   const updateStatus = async (id, status) => {
     try {
@@ -221,7 +261,17 @@ export default function Appointments() {
       title="Appointments"
       subtitle="Confirm bookings, record visits, and move patients into billing."
       actions={
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ position: "relative" }}>
+            <Search size={14} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", pointerEvents: "none" }} />
+            <input
+              className="input"
+              placeholder="Search patient..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ paddingLeft: 28, width: 160, fontSize: 13 }}
+            />
+          </div>
           <select className="select" value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="">All status</option>
             <option value="pending">Pending</option>
@@ -230,6 +280,9 @@ export default function Appointments() {
             <option value="completed">Completed</option>
             <option value="no_show">No show</option>
           </select>
+          <button className="btn btn-primary" onClick={() => setBookModal(true)}>
+            <Plus size={16} /> New appointment
+          </button>
           <button className={`btn ${view === "list" ? "btn-primary" : "btn-secondary"}`} onClick={() => setView("list")} title="List view">
             <List size={16} />
           </button>
@@ -248,15 +301,15 @@ export default function Appointments() {
       <section className="table-panel">
         <div className="panel-header">
           <h2>Appointment queue</h2>
-          <span className="badge">{appointments.length} visible</span>
+          <span className="badge">{filtered.length} visible</span>
         </div>
         {loading ? (
           <SkeletonBlock className="skeleton-table" />
-        ) : appointments.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <EmptyState
-            title="No appointments found"
-            description="Appointments confirmed through the chatbot will appear here."
-            action={<button className="btn btn-primary" onClick={() => navigate("/chat-preview")}>Test chatbot</button>}
+            title={search ? "No matching appointments" : "No appointments found"}
+            description={search ? "Try a different name or phone number." : "Appointments confirmed through the chatbot will appear here."}
+            action={!search && <button className="btn btn-primary" onClick={() => navigate("/chat-preview")}>Test chatbot</button>}
           />
         ) : (
           <table className="responsive-table">
@@ -264,7 +317,7 @@ export default function Appointments() {
               <tr>{["Patient", "Phone", "Concern", "Doctor", "Slot", "Status", "Actions"].map((h) => <th key={h}>{h}</th>)}</tr>
             </thead>
             <tbody>
-              {appointments.map((appointment) => (
+              {filtered.map((appointment) => (
                 <tr key={appointment.id}>
                   <td data-label="Patient">{appointment.patient_name}</td>
                   <td data-label="Phone">{appointment.patient_phone}</td>
@@ -295,6 +348,39 @@ export default function Appointments() {
           </table>
         )}
       </section>
+
+      {bookModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div className="modal-header">
+              <div>
+                <h2>New appointment</h2>
+                <p>Book a slot for a patient manually.</p>
+              </div>
+              <button className="icon-btn" onClick={() => { setBookModal(false); setBookForm(initialBookForm); }}><X size={16} /></button>
+            </div>
+            <div className="modal-body form-stack">
+              <div className="form-grid">
+                <input className="input" placeholder="Patient name *" value={bookForm.patient_name} onChange={(e) => setBookForm({ ...bookForm, patient_name: e.target.value })} />
+                <input className="input" placeholder="Patient phone *" value={bookForm.patient_phone} onChange={(e) => setBookForm({ ...bookForm, patient_phone: e.target.value })} />
+              </div>
+              <input className="input" placeholder="Concern / reason for visit" value={bookForm.patient_concern} onChange={(e) => setBookForm({ ...bookForm, patient_concern: e.target.value })} />
+              <select className="select" value={bookForm.doctor_id} onChange={(e) => setBookForm({ ...bookForm, doctor_id: e.target.value })}>
+                <option value="">Select doctor *</option>
+                {doctors.map((d) => <option key={d.id} value={d.id}>Dr. {d.name} — {d.specialty}</option>)}
+              </select>
+              <div className="field">
+                <label style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 4, display: "block" }}>Appointment date & time *</label>
+                <input className="input" type="datetime-local" value={bookForm.slot_datetime} onChange={(e) => setBookForm({ ...bookForm, slot_datetime: e.target.value })} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={bookAppointment} disabled={booking}>{booking ? "Booking..." : "Book appointment"}</button>
+              <button className="btn btn-secondary" onClick={() => { setBookModal(false); setBookForm(initialBookForm); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {visitModal && (
         <div className="modal-overlay">

@@ -8,7 +8,7 @@ from app.database import engine, Base
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -20,6 +20,10 @@ def _add_missing_columns():
         conn.execute(text(
             "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
             "reminder_sent BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+            "doctor_id UUID REFERENCES doctors(id)"
         ))
         conn.commit()
 
@@ -81,6 +85,8 @@ app.include_router(analytics.router)
 app.include_router(settings_router.router)
 app.include_router(whatsapp.router)
 app.include_router(booking.router)
+app.include_router(notifications.router)
+app.include_router(doctor_portal.router)
 
 
 @app.get("/")

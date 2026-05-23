@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(python -m alembic init alembic)",
-      "Bash(npm start *)"
+      "Bash(npm start *)",
+      "Bash(mkdir -p \"r:\\\\connect-api\\\\backend\\\\app\\\\models\" \"r:\\\\connect-api\\\\backend\\\\app\\\\routers\" \"r:\\\\connect-api\\\\backend\\\\app\\\\services\")",
+      "Bash(mkdir -p \"r:\\\\connect-api\\\\frontend\\\\src\\\\api\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\context\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\components\" \"r:\\\\connect-api\\\\frontend\\\\src\\\\pages\" \"r:\\\\connect-api\\\\frontend\\\\public\")"
+    ],
+    "additionalDirectories": [
+      "r:\\connect-api\\backend\\app",
+      "r:\\connect-api\\frontend\\src"
     ]
   }
 }

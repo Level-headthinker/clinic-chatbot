@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Calendar, Clock, Plus, Stethoscope, TrendingUp, Users } from "lucide-react";
+import { AlertCircle, Calendar, Clock, Plus, Stethoscope, TrendingUp, Users } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import EmptyState from "../components/EmptyState";
@@ -35,6 +35,8 @@ export default function Dashboard() {
   const doctors = data?.doctors ?? {};
   const recent = data?.recent_appointments ?? [];
   const branches = data?.branches ?? [];
+  const todayAppts = data?.today_appointments ?? [];
+  const dueFollowups = data?.due_followups ?? [];
 
   return (
     <AppLayout
@@ -114,6 +116,66 @@ export default function Dashboard() {
                       <td data-label="Appointments">{b.appointments}</td>
                       <td data-label="Pending">{b.pending_appointments}</td>
                       <td data-label="Doctors">{b.active_doctors}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {/* Today's appointments */}
+          <section className="table-panel">
+            <div className="panel-header">
+              <h2>Today's appointments</h2>
+              <button className="btn btn-secondary" onClick={() => navigate("/appointments")}>View all</button>
+            </div>
+            {todayAppts.length === 0 ? (
+              <p style={{ padding: "16px 20px", color: "var(--muted)", fontSize: 13 }}>No appointments scheduled for today.</p>
+            ) : (
+              <table className="responsive-table">
+                <thead>
+                  <tr>{["Patient", "Phone", "Doctor", "Time", "Status"].map((h) => <th key={h}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {todayAppts.map((a) => (
+                    <tr key={a.id}>
+                      <td data-label="Patient">{a.patient_name}</td>
+                      <td data-label="Phone">{a.patient_phone}</td>
+                      <td data-label="Doctor">{a.doctor_name}</td>
+                      <td data-label="Time">{new Date(a.slot_datetime).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}</td>
+                      <td data-label="Status"><span className={`badge ${badgeClass(a.status)}`}>{a.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          {/* Due follow-ups */}
+          {dueFollowups.length > 0 && (
+            <section className="table-panel">
+              <div className="panel-header">
+                <h2>Follow-ups due today</h2>
+                <button className="btn btn-secondary" onClick={() => navigate("/follow-ups")}>View all</button>
+              </div>
+              <table className="responsive-table">
+                <thead>
+                  <tr>{["Title", "Due", ""].map((h) => <th key={h}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {dueFollowups.map((f) => (
+                    <tr key={f.id}>
+                      <td data-label="Title">
+                        <strong>{f.title}</strong>
+                      </td>
+                      <td data-label="Due">
+                        <span style={{ color: f.overdue ? "var(--danger)" : "var(--text-1)", fontSize: 13 }}>
+                          {f.overdue ? "Overdue · " : ""}{new Date(f.due_date).toLocaleString()}
+                        </span>
+                      </td>
+                      <td>
+                        {f.overdue && <AlertCircle size={15} style={{ color: "var(--danger)", verticalAlign: "middle" }} />}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

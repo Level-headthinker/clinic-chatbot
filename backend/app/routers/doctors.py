@@ -4,12 +4,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from app.database import get_db
 from app.models.doctor import Doctor
 from app.models.user import User
 from app.services.auth import require_admin_user
+from app.services.auth import hash_password
 from app.models.appointment import Appointment
 from app.models.visit import VisitRecord
 
@@ -39,6 +40,11 @@ class DoctorUpdate(BaseModel):
     treatments: Optional[list] = None
     timings: Optional[list] = None
     is_active: Optional[bool] = None
+
+
+class DoctorLoginCreate(BaseModel):
+    email: EmailStr
+    password: str
 
 
 @router.post("/")
@@ -98,12 +104,13 @@ def list_doctors(
             # Previously these counted records across ALL clinics.
             "total_visits": db.query(VisitRecord).filter(
                 VisitRecord.doctor_id == d.id,
-                VisitRecord.tenant_id == current_user.tenant_id   # ← added
+                VisitRecord.tenant_id == current_user.tenant_id,
             ).count(),
             "total_appointments": db.query(Appointment).filter(
                 Appointment.doctor_id == d.id,
-                Appointment.tenant_id == current_user.tenant_id   # ← added
-            ).count()
+                Appointment.tenant_id == current_user.tenant_id,
+            ).count(),
+            "has_login": db.query(User).filter(User.doctor_id == d.id).first() is not None,
         }
         for d in doctors
     ]
@@ -166,3 +173,37 @@ def delete_doctor(
     doctor.is_active = False
     db.commit()
     return {"message": "Doctor removed successfully"}
+
+
+@router.post("/{doctor_id}/create-login")
+def create_doctor_login(
+    doctor_id: str,
+    data: DoctorLoginCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    doctor = db.query(Doctor).filter(
+        Doctor.id == doctor_id,
+        Doctor.tenant_id == current_user.tenant_id,
+    ).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    if db.query(User).filter(User.doctor_id == doctor.id).first():
+        raise HTTPException(status_code=400, detail="This doctor already has a login")
+
+    if db.query(User).filter(User.email == data.email).first():
+        raise HTTPException(status_code=400, detail="Email already in use")
+
+    user = User(
+        tenant_id=current_user.tenant_id,
+        branch_id=doctor.branch_id,
+        doctor_id=doctor.id,
+        email=data.email,
+        hashed_password=hash_password(data.password),
+        full_name=doctor.name,
+        role="doctor",
+    )
+    db.add(user)
+    db.commit()
+    return {"message": "Doctor login created successfully"}

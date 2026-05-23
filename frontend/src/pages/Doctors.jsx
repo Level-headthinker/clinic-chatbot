@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Edit3, Plus, Trash2, X } from "lucide-react";
+import { Edit3, KeyRound, Plus, Trash2, X } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import EmptyState from "../components/EmptyState";
@@ -29,6 +29,9 @@ export default function Doctors() {
     to: "05:00 PM",
   });
   const [editId, setEditId] = useState(null);
+  const [loginModal, setLoginModal] = useState(null); // doctor object
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [loginSaving, setLoginSaving] = useState(false);
   const { notify } = useToast();
 
   const fetchDoctors = useCallback(async () => {
@@ -106,6 +109,25 @@ export default function Doctors() {
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const createDoctorLogin = async () => {
+    if (!loginForm.email || !loginForm.password) {
+      notify("Email and password are required.", "error");
+      return;
+    }
+    setLoginSaving(true);
+    try {
+      await api.post(`/doctors/${loginModal.id}/create-login`, loginForm);
+      notify("Doctor login created successfully.", "success");
+      setLoginModal(null);
+      setLoginForm({ email: "", password: "" });
+      fetchDoctors();
+    } catch (err) {
+      notify(err?.response?.data?.detail || "Failed to create login.", "error");
+    } finally {
+      setLoginSaving(false);
+    }
   };
 
   const addTiming = () => {
@@ -206,6 +228,10 @@ export default function Doctors() {
                   <td data-label="Appointments">{doctor.total_appointments || 0}</td>
                   <td data-label="Actions">
                     <div className="action-row" style={{ justifyContent: "flex-end" }}>
+                      {doctor.has_login
+                        ? <span className="badge badge-success" style={{ fontSize: 11 }}>Login active</span>
+                        : <button className="icon-btn" title="Create doctor login" onClick={() => { setLoginModal(doctor); setLoginForm({ email: "", password: "" }); }}><KeyRound size={15} /></button>
+                      }
                       <button className="icon-btn" onClick={() => editDoctor(doctor)} title="Edit doctor"><Edit3 size={15} /></button>
                       <button className="icon-btn btn-danger" onClick={() => removeDoctor(doctor.id)} title="Remove doctor"><Trash2 size={15} /></button>
                     </div>
@@ -216,6 +242,44 @@ export default function Doctors() {
           </table>
         )}
       </section>
+      {loginModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div className="modal-header">
+              <div>
+                <h2>Create doctor login</h2>
+                <p>Dr. {loginModal.name} — {loginModal.specialty}</p>
+              </div>
+              <button className="icon-btn" onClick={() => setLoginModal(null)}><X size={16} /></button>
+            </div>
+            <div className="modal-body form-stack">
+              <input
+                className="input"
+                type="email"
+                placeholder="Doctor's email address"
+                value={loginForm.email}
+                onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="Password (min 8 characters)"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+              />
+              <p style={{ fontSize: 12, color: "var(--muted)" }}>
+                The doctor will use these credentials to log in and see their own schedule and patients.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={createDoctorLogin} disabled={loginSaving}>
+                {loginSaving ? "Creating..." : "Create login"}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setLoginModal(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

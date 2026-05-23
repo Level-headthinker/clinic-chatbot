@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from app.database import get_db
 from app.models.appointment import Appointment
 from app.models.doctor import Doctor
@@ -222,3 +222,86 @@ def cancel_appointment(
     appointment.status = "cancelled"
     db.commit()
     return {"message": "Appointment cancelled"}
+
+
+# ── Waiting Room Queue ────────────────────────────────────────────────────────
+
+def _fmt_appt(a):
+    wait_mins = None
+    if a.checked_in and a.checked_in_at:
+        delta = datetime.now(timezone.utc) - a.checked_in_at
+        wait_mins = int(delta.total_seconds() // 60)
+    return {
+        "id": str(a.id),
+        "patient_name": a.patient_name,
+        "patient_phone": a.patient_phone,
+        "patient_concern": a.patient_concern,
+        "doctor_name": a.doctor.name if a.doctor else "—",
+        "doctor_id": str(a.doctor_id),
+        "slot_datetime": a.slot_datetime.isoformat(),
+        "status": a.status,
+        "checked_in": a.checked_in,
+        "checked_in_at": a.checked_in_at.isoformat() if a.checked_in_at else None,
+        "wait_minutes": wait_mins,
+    }
+
+
+@router.get("/queue")
+def get_queue(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    base = (
+        db.query(Appointment)
+        .options(joinedload(Appointment.doctor))
+        .filter(
+            Appointment.tenant_id == current_user.tenant_id,
+            Appointment.is_active == True,
+            Appointment.slot_datetime >= today_start,
+            Appointment.slot_datetime < today_end,
+        )
+    )
+    if current_user.branch_id:
+        base = base.filter(Appointment.branch_id == current_user.branch_id)
+
+    all_today = base.order_by(Appointment.slot_datetime.asc()).all()
+
+    expected = [_fmt_appt(a) for a in all_today
+                if not a.checked_in and a.status in ("pending", "confirmed")]
+    waiting  = sorted(
+        [_fmt_appt(a) for a in all_today
+         if a.checked_in and a.status in ("pending", "confirmed")],
+        key=lambda x: x["checked_in_at"] or ""
+    )
+    done     = [_fmt_appt(a) for a in all_today
+                if a.status in ("completed", "cancelled", "no_show")]
+
+    return {"expected": expected, "waiting": waiting, "done": done}
+
+
+@router.post("/{appointment_id}/checkin")
+def toggle_checkin(
+    appointment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.tenant_id == current_user.tenant_id,
+    ).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+    if appointment.checked_in:
+        appointment.checked_in = False
+        appointment.checked_in_at = None
+    else:
+        appointment.checked_in = True
+        appointment.checked_in_at = datetime.now(timezone.utc)
+
+    db.commit()
+    return {"checked_in": appointment.checked_in}

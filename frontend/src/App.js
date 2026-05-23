@@ -18,6 +18,7 @@ import Voice from "./pages/Voice";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 import BookingPage from "./pages/BookingPage";
+import WaitingRoom from "./pages/WaitingRoom";
 import DoctorPortal from "./pages/DoctorPortal";
 import Landing from "./pages/Landing";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -106,6 +107,7 @@ export default function App() {
               <Route path="/voice" element={<ProtectedRoute><Voice /></ProtectedRoute>} />
               <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/waiting-room" element={<ProtectedRoute><WaitingRoom /></ProtectedRoute>} />
               <Route path="/book/:slug" element={<BookingPage />} />
               <Route path="/doctor" element={<DoctorRoute><DoctorPortal /></DoctorRoute>} />
               <Route path="/super" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />

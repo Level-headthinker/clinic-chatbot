@@ -19,6 +19,7 @@ import {
   UserCheck,
   Users,
   UserCog,
+  Sofa,
 } from "lucide-react";
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { label: "Doctors",      icon: Stethoscope,     path: "/doctors" },
   { label: "Patients",     icon: UserCheck,       path: "/patients" },
   { label: "Appointments", icon: Calendar,        path: "/appointments" },
+  { label: "Waiting Room", icon: Sofa,            path: "/waiting-room" },
   { label: "Billing",      icon: Receipt,         path: "/billing" },
   { label: "Leads",        icon: Users,           path: "/leads" },
   { label: "Follow-ups",   icon: Bell,            path: "/follow-ups" },

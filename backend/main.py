@@ -25,6 +25,14 @@ def _add_missing_columns():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
             "doctor_id UUID REFERENCES doctors(id)"
         ))
+        conn.execute(text(
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
+            "checked_in BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        conn.execute(text(
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
+            "checked_in_at TIMESTAMP WITH TIME ZONE"
+        ))
         conn.commit()
 
 

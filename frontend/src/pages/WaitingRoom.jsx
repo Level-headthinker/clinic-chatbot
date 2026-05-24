@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Clock, Stethoscope, UserCheck, UserX } from "lucide-react";
+import { CheckCircle2, Clock, DoorOpen, Search, Stethoscope, UserCheck, UserPlus, UserX, X } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import { SkeletonBlock } from "../components/Skeleton";
@@ -77,10 +77,11 @@ function PatientCard({ appt, position, onCheckIn, onCallIn, onUndo, onNoShow, on
           </p>
           <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>
             Dr. {appt.doctor_name} · {slotStr}
+            {appt.room_name && <span> · <DoorOpen size={11} style={{ verticalAlign: "middle" }} /> {appt.room_name}</span>}
           </p>
-          {appt.patient_concern && (
+          {(appt.service_name || appt.patient_concern) && (
             <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--muted)", fontStyle: "italic" }}>
-              {appt.patient_concern.slice(0, 50)}
+              {(appt.service_name || appt.patient_concern || "").slice(0, 60)}
             </p>
           )}
         </div>
@@ -191,12 +192,241 @@ function DoneCard({ appt }) {
   );
 }
 
+// ── Walk-in modal ─────────────────────────────────────────────────────────────
+function WalkInModal({ onClose, onSave }) {
+  const [step, setStep] = useState(1); // 1=patient info, 2=service lookup, 3=assign
+  const [form, setForm] = useState({ name: "", phone: "", service: "" });
+  const [options, setOptions] = useState(null); // { doctors, rooms }
+  const [selectedDoctor, setSelectedDoctor] = useState(null);
+  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const { notify } = useToast();
+
+  const searchService = async () => {
+    if (!form.service.trim()) return;
+    setSearching(true);
+    try {
+      const res = await api.get(`/appointments/available-for/${encodeURIComponent(form.service.trim())}`);
+      setOptions(res.data);
+      setStep(3);
+    } catch {
+      notify("Failed to search. Try again.", "error");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const submit = async () => {
+    if (!selectedDoctor) { notify("Please select a doctor.", "error"); return; }
+    setSaving(true);
+    try {
+      await api.post("/appointments/walk-in", {
+        patient_name: form.name.trim(),
+        patient_phone: form.phone.trim(),
+        patient_concern: form.service.trim(),
+        service_name: form.service.trim(),
+        doctor_id: selectedDoctor.id,
+        room_id: selectedRoom?.id || null,
+      });
+      notify("Walk-in patient assigned!", "success");
+      onSave();
+    } catch (err) {
+      notify(err?.response?.data?.detail || "Failed to assign walk-in.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+    }} onClick={onClose}>
+      <div style={{
+        background: "var(--surface)", borderRadius: 18, padding: 28,
+        width: 480, maxHeight: "90vh", overflowY: "auto",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
+      }} onClick={(e) => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Walk-in Patient</h2>
+            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>
+              {step === 1 ? "Step 1: Patient info" : step === 2 ? "Step 2: Requested service" : "Step 3: Assign staff & room"}
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Step 1: Patient info */}
+        {step === 1 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Patient Name *</label>
+              <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full name" />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Phone</label>
+              <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="03xx-xxxxxxx" />
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ marginTop: 4 }}
+              disabled={!form.name.trim()}
+              onClick={() => setStep(2)}
+            >
+              Next: Select Service
+            </button>
+          </div>
+        )}
+
+        {/* Step 2: Service search */}
+        {step === 2 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>What service does the patient want? *</label>
+              <input
+                className="input"
+                value={form.service}
+                onChange={(e) => setForm({ ...form, service: e.target.value })}
+                placeholder="e.g. Hydra Facial, Laser Hair Removal"
+                onKeyDown={(e) => e.key === "Enter" && searchService()}
+                autoFocus
+              />
+              <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--muted)" }}>
+                The system will find doctors who can perform this and available rooms.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn btn-secondary" onClick={() => setStep(1)}>Back</button>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                disabled={!form.service.trim() || searching}
+                onClick={searchService}
+              >
+                <Search size={14} /> {searching ? "Searching…" : "Find Available Staff"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Select doctor + room */}
+        {step === 3 && options && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Doctors */}
+            <div>
+              <p style={{ margin: "0 0 8px", fontWeight: 700, fontSize: 13 }}>
+                Doctors who can do "{options.service}" ({options.doctors.length})
+              </p>
+              {options.doctors.length === 0 ? (
+                <div style={{ padding: "14px", background: "var(--surface-2)", borderRadius: 10, color: "var(--muted)", fontSize: 13, textAlign: "center" }}>
+                  No doctors available for this service right now.
+                  <br />
+                  <span style={{ fontSize: 11 }}>Check that doctors have this service listed in their treatments.</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {options.doctors.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => !d.is_busy && setSelectedDoctor(d)}
+                      style={{
+                        padding: "12px 14px", borderRadius: 10, border: "2px solid",
+                        borderColor: selectedDoctor?.id === d.id ? "var(--primary)" : "var(--line)",
+                        background: d.is_busy ? "var(--surface-2)" : selectedDoctor?.id === d.id ? "var(--primary-light, #f0fdf4)" : "var(--surface-2)",
+                        cursor: d.is_busy ? "not-allowed" : "pointer",
+                        opacity: d.is_busy ? 0.55 : 1,
+                        display: "flex", alignItems: "center", gap: 12, textAlign: "left",
+                      }}
+                    >
+                      <Stethoscope size={16} color={selectedDoctor?.id === d.id ? "var(--primary)" : "var(--muted)"} />
+                      <div style={{ flex: 1 }}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>Dr. {d.name}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>{d.specialty}</p>
+                      </div>
+                      {d.is_busy ? (
+                        <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 700 }}>Busy</span>
+                      ) : d.is_ready ? (
+                        <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>Ready</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Rooms */}
+            <div>
+              <p style={{ margin: "0 0 8px", fontWeight: 700, fontSize: 13 }}>
+                Available Rooms ({options.rooms.length}) <span style={{ fontWeight: 400, color: "var(--muted)" }}>— optional</span>
+              </p>
+              {options.rooms.length === 0 ? (
+                <div style={{ padding: "10px 14px", background: "var(--surface-2)", borderRadius: 10, color: "var(--muted)", fontSize: 13 }}>
+                  No free rooms. You can still assign without a room.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <button
+                    onClick={() => setSelectedRoom(null)}
+                    style={{
+                      padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                      border: "2px solid", borderColor: !selectedRoom ? "var(--primary)" : "var(--line)",
+                      background: !selectedRoom ? "var(--primary)" : "var(--surface-2)",
+                      color: !selectedRoom ? "#fff" : "var(--text)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    No room
+                  </button>
+                  {options.rooms.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setSelectedRoom(r)}
+                      style={{
+                        padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        border: "2px solid", borderColor: selectedRoom?.id === r.id ? "var(--primary)" : "var(--line)",
+                        background: selectedRoom?.id === r.id ? "var(--primary)" : "var(--surface-2)",
+                        color: selectedRoom?.id === r.id ? "#fff" : "var(--text)",
+                        cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+                      }}
+                    >
+                      <DoorOpen size={13} /> {r.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button className="btn btn-secondary" onClick={() => setStep(2)}>Back</button>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                disabled={!selectedDoctor || saving}
+                onClick={submit}
+              >
+                {saving ? "Assigning…" : "Assign & Send to Room"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function WaitingRoom() {
   const [queue, setQueue] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [showWalkIn, setShowWalkIn] = useState(false);
   const { notify } = useToast();
 
   const fetchQueue = useCallback(async (silent = false) => {
@@ -286,6 +516,13 @@ export default function WaitingRoom() {
             </span>
           )}
           <button className="btn btn-secondary" onClick={() => fetchQueue()}>Refresh</button>
+          <button
+            className="btn btn-primary"
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            onClick={() => setShowWalkIn(true)}
+          >
+            <UserPlus size={15} /> Walk-in
+          </button>
         </div>
       }
     >
@@ -371,6 +608,13 @@ export default function WaitingRoom() {
           </Column>
 
         </div>
+      )}
+
+      {showWalkIn && (
+        <WalkInModal
+          onClose={() => setShowWalkIn(false)}
+          onSave={() => { setShowWalkIn(false); fetchQueue(true); }}
+        />
       )}
     </AppLayout>
   );

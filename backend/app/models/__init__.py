@@ -11,3 +11,5 @@ from app.models.flagged_log import FlaggedLog
 from app.models.follow_up import FollowUp
 from app.models.prescription import Prescription
 from app.models.note import Note
+from app.models.service import Service
+from app.models.room import Room

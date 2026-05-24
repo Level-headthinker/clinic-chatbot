@@ -11,6 +11,8 @@ from datetime import datetime, timezone, timedelta
 from app.database import get_db
 from app.models.appointment import Appointment
 from app.models.doctor import Doctor
+from app.models.room import Room
+from app.models.service import Service
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import require_admin_user
@@ -156,6 +158,14 @@ def update_appointment(
                 detail=f"Status must be one of {allowed}"
             )
         appointment.status = data.status
+
+        # Free the room when appointment ends
+        if data.status in ("completed", "cancelled", "no_show") and appointment.room_id:
+            room = db.query(Room).filter(Room.id == appointment.room_id).first()
+            if room:
+                room.is_occupied = False
+                room.current_appointment_id = None
+
     if data.notes is not None:
         appointment.notes = data.notes
 
@@ -226,17 +236,21 @@ def cancel_appointment(
 
 # ── Waiting Room Queue ────────────────────────────────────────────────────────
 
-def _fmt_appt(a, doctor_obj=None):
+def _fmt_appt(a, doctor_obj=None, room_map=None):
     wait_mins = None
     if a.checked_in and a.checked_in_at:
         delta = datetime.now(timezone.utc) - a.checked_in_at
         wait_mins = int(delta.total_seconds() // 60)
     doc = doctor_obj or a.doctor
+    room_name = None
+    if a.room_id and room_map:
+        room_name = room_map.get(str(a.room_id))
     return {
         "id": str(a.id),
         "patient_name": a.patient_name,
         "patient_phone": a.patient_phone,
         "patient_concern": a.patient_concern,
+        "service_name": a.service_name,
         "doctor_name": doc.name if doc else "—",
         "doctor_id": str(a.doctor_id),
         "doctor_is_ready": doc.is_ready if doc else False,
@@ -245,6 +259,8 @@ def _fmt_appt(a, doctor_obj=None):
         "checked_in": a.checked_in,
         "checked_in_at": a.checked_in_at.isoformat() if a.checked_in_at else None,
         "wait_minutes": wait_mins,
+        "room_id": str(a.room_id) if a.room_id else None,
+        "room_name": room_name,
     }
 
 
@@ -272,15 +288,22 @@ def get_queue(
 
     all_today = base.order_by(Appointment.slot_datetime.asc()).all()
 
-    expected    = [_fmt_appt(a) for a in all_today
+    # Build a room name lookup for any appointments with room_id
+    room_ids = {str(a.room_id) for a in all_today if a.room_id}
+    room_map = {}
+    if room_ids:
+        rooms = db.query(Room).filter(Room.id.in_(list(room_ids))).all()
+        room_map = {str(r.id): r.name for r in rooms}
+
+    expected    = [_fmt_appt(a, room_map=room_map) for a in all_today
                    if not a.checked_in and a.status in ("pending", "confirmed")]
     waiting     = sorted(
-        [_fmt_appt(a) for a in all_today
+        [_fmt_appt(a, room_map=room_map) for a in all_today
          if a.checked_in and a.status in ("pending", "confirmed")],
         key=lambda x: x["checked_in_at"] or ""
     )
-    with_doctor = [_fmt_appt(a) for a in all_today if a.status == "in_progress"]
-    done        = [_fmt_appt(a) for a in all_today
+    with_doctor = [_fmt_appt(a, room_map=room_map) for a in all_today if a.status == "in_progress"]
+    done        = [_fmt_appt(a, room_map=room_map) for a in all_today
                    if a.status in ("completed", "cancelled", "no_show")]
 
     return {"expected": expected, "waiting": waiting, "with_doctor": with_doctor, "done": done}
@@ -333,3 +356,146 @@ def toggle_checkin(
 
     db.commit()
     return {"checked_in": appointment.checked_in}
+
+
+# ── Walk-in / Service-based assignment ───────────────────────────────────────
+
+@router.get("/available-for/{service_name}")
+def available_for_service(
+    service_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """
+    Returns doctors who can perform the requested service and free rooms.
+    A doctor is available if:
+      - They have the service name in their treatments list (case-insensitive)
+      - They are not currently in_progress with another patient
+    A room is available if it is not occupied.
+    """
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    # Doctors with this service in treatments
+    all_doctors = db.query(Doctor).filter(
+        Doctor.tenant_id == current_user.tenant_id,
+        Doctor.is_active == True,
+    ).all()
+    if current_user.branch_id:
+        all_doctors = [d for d in all_doctors if d.branch_id == current_user.branch_id]
+
+    svc_lower = service_name.lower().strip()
+    matched_doctors = [
+        d for d in all_doctors
+        if d.treatments and any(svc_lower in t.lower() for t in d.treatments)
+    ]
+
+    # Which of those doctors are currently busy (in_progress today)?
+    busy_doctor_ids = {
+        str(a.doctor_id)
+        for a in db.query(Appointment).filter(
+            Appointment.tenant_id == current_user.tenant_id,
+            Appointment.status == "in_progress",
+            Appointment.slot_datetime >= today_start,
+            Appointment.slot_datetime < today_end,
+        ).all()
+    }
+
+    available_doctors = [
+        {
+            "id": str(d.id),
+            "name": d.name,
+            "specialty": d.specialty,
+            "is_ready": d.is_ready,
+            "is_busy": str(d.id) in busy_doctor_ids,
+        }
+        for d in matched_doctors
+    ]
+
+    # Free rooms
+    room_q = db.query(Room).filter(
+        Room.tenant_id == current_user.tenant_id,
+        Room.is_active == True,
+        Room.is_occupied == False,
+    )
+    if current_user.branch_id:
+        room_q = room_q.filter(Room.branch_id == current_user.branch_id)
+    free_rooms = [{"id": str(r.id), "name": r.name} for r in room_q.order_by(Room.name).all()]
+
+    return {
+        "service": service_name,
+        "doctors": available_doctors,
+        "rooms": free_rooms,
+    }
+
+
+class WalkInCreate(BaseModel):
+    patient_name: str
+    patient_phone: str
+    patient_concern: Optional[str] = None
+    service_name: str
+    doctor_id: str
+    room_id: Optional[str] = None
+
+
+@router.post("/walk-in")
+def create_walk_in(
+    data: WalkInCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """Immediately assign a walk-in patient to a doctor and optional room."""
+    doctor = db.query(Doctor).filter(
+        Doctor.id == data.doctor_id,
+        Doctor.tenant_id == current_user.tenant_id,
+        Doctor.is_active == True,
+    ).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    room = None
+    if data.room_id:
+        room = db.query(Room).filter(
+            Room.id == data.room_id,
+            Room.tenant_id == current_user.tenant_id,
+            Room.is_active == True,
+        ).first()
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        if room.is_occupied:
+            raise HTTPException(status_code=400, detail="Room is already occupied")
+
+    now = datetime.now(timezone.utc)
+    appointment = Appointment(
+        tenant_id=current_user.tenant_id,
+        branch_id=current_user.branch_id or doctor.branch_id,
+        doctor_id=data.doctor_id,
+        patient_name=data.patient_name,
+        patient_phone=data.patient_phone,
+        patient_concern=data.patient_concern or data.service_name,
+        service_name=data.service_name,
+        slot_datetime=now,
+        status="in_progress",
+        checked_in=True,
+        checked_in_at=now,
+        room_id=room.id if room else None,
+    )
+    db.add(appointment)
+    db.flush()
+
+    if room:
+        room.is_occupied = True
+        room.current_appointment_id = appointment.id
+
+    # Clear doctor's ready flag — they now have a patient
+    doctor.is_ready = False
+
+    db.commit()
+    db.refresh(appointment)
+    return {
+        "message": "Walk-in assigned successfully.",
+        "appointment_id": str(appointment.id),
+        "doctor": doctor.name,
+        "room": room.name if room else None,
+    }

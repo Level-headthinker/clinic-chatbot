@@ -149,7 +149,7 @@ def update_appointment(
         )
 
     if data.status is not None:
-        allowed = ["pending", "confirmed", "cancelled", "completed", "no_show"]
+        allowed = ["pending", "confirmed", "cancelled", "completed", "no_show", "in_progress"]
         if data.status not in allowed:
             raise HTTPException(
                 status_code=400,
@@ -226,18 +226,20 @@ def cancel_appointment(
 
 # ── Waiting Room Queue ────────────────────────────────────────────────────────
 
-def _fmt_appt(a):
+def _fmt_appt(a, doctor_obj=None):
     wait_mins = None
     if a.checked_in and a.checked_in_at:
         delta = datetime.now(timezone.utc) - a.checked_in_at
         wait_mins = int(delta.total_seconds() // 60)
+    doc = doctor_obj or a.doctor
     return {
         "id": str(a.id),
         "patient_name": a.patient_name,
         "patient_phone": a.patient_phone,
         "patient_concern": a.patient_concern,
-        "doctor_name": a.doctor.name if a.doctor else "—",
+        "doctor_name": doc.name if doc else "—",
         "doctor_id": str(a.doctor_id),
+        "doctor_is_ready": doc.is_ready if doc else False,
         "slot_datetime": a.slot_datetime.isoformat(),
         "status": a.status,
         "checked_in": a.checked_in,
@@ -270,17 +272,43 @@ def get_queue(
 
     all_today = base.order_by(Appointment.slot_datetime.asc()).all()
 
-    expected = [_fmt_appt(a) for a in all_today
-                if not a.checked_in and a.status in ("pending", "confirmed")]
-    waiting  = sorted(
+    expected    = [_fmt_appt(a) for a in all_today
+                   if not a.checked_in and a.status in ("pending", "confirmed")]
+    waiting     = sorted(
         [_fmt_appt(a) for a in all_today
          if a.checked_in and a.status in ("pending", "confirmed")],
         key=lambda x: x["checked_in_at"] or ""
     )
-    done     = [_fmt_appt(a) for a in all_today
-                if a.status in ("completed", "cancelled", "no_show")]
+    with_doctor = [_fmt_appt(a) for a in all_today if a.status == "in_progress"]
+    done        = [_fmt_appt(a) for a in all_today
+                   if a.status in ("completed", "cancelled", "no_show")]
 
-    return {"expected": expected, "waiting": waiting, "done": done}
+    return {"expected": expected, "waiting": waiting, "with_doctor": with_doctor, "done": done}
+
+
+@router.post("/{appointment_id}/call-in")
+def call_in_patient(
+    appointment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """Receptionist sends patient into doctor's room. Clears doctor's ready flag."""
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.tenant_id == current_user.tenant_id,
+    ).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+    appointment.status = "in_progress"
+
+    # Clear the doctor's ready flag — they now have a patient
+    doctor = db.query(Doctor).filter(Doctor.id == appointment.doctor_id).first()
+    if doctor:
+        doctor.is_ready = False
+
+    db.commit()
+    return {"message": "Patient called in."}
 
 
 @router.post("/{appointment_id}/checkin")

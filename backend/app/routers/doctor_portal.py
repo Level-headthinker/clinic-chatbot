@@ -201,3 +201,74 @@ def update_availability(
     flag_modified(doctor, "timings")
     db.commit()
     return {"message": "Availability updated."}
+
+
+@router.post("/ready")
+def toggle_ready(
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    """Doctor signals they are ready for the next patient."""
+    doctor = db.query(Doctor).filter(Doctor.id == current_user.doctor_id).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    doctor.is_ready = not doctor.is_ready
+    db.commit()
+    return {"is_ready": doctor.is_ready}
+
+
+@router.get("/my-queue")
+def my_queue(
+    current_user: User = Depends(require_doctor_user),
+    db: Session = Depends(get_db),
+):
+    """Today's checked-in patients waiting for this doctor."""
+    from app.models.appointment import Appointment
+    now = _now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    appointments = (
+        db.query(Appointment)
+        .filter(
+            Appointment.doctor_id == current_user.doctor_id,
+            Appointment.is_active == True,
+            Appointment.slot_datetime >= today_start,
+            Appointment.slot_datetime < today_end,
+        )
+        .order_by(Appointment.checked_in_at.asc().nullslast(), Appointment.slot_datetime.asc())
+        .all()
+    )
+
+    doctor = db.query(Doctor).filter(Doctor.id == current_user.doctor_id).first()
+
+    waiting = []
+    with_doctor = []
+    done = []
+
+    for a in appointments:
+        entry = {
+            "id": str(a.id),
+            "patient_name": a.patient_name,
+            "patient_phone": a.patient_phone,
+            "patient_concern": a.patient_concern,
+            "slot_datetime": a.slot_datetime.isoformat(),
+            "status": a.status,
+            "checked_in": a.checked_in,
+            "checked_in_at": a.checked_in_at.isoformat() if a.checked_in_at else None,
+            "wait_minutes": int((now - a.checked_in_at).total_seconds() // 60)
+                            if a.checked_in and a.checked_in_at else None,
+        }
+        if a.status == "in_progress":
+            with_doctor.append(entry)
+        elif a.status in ("completed", "cancelled", "no_show"):
+            done.append(entry)
+        elif a.checked_in:
+            waiting.append(entry)
+
+    return {
+        "is_ready": doctor.is_ready if doctor else False,
+        "waiting": waiting,
+        "with_doctor": with_doctor,
+        "done_count": len(done),
+    }

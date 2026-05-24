@@ -26,6 +26,7 @@ class Doctor(Base):
     available_slots = Column(JSONB, default=list)
     treatments = Column(ARRAY(Text), default=list)
     timings = Column(JSONB, default=list)
+    is_ready = Column(Boolean, default=False, nullable=False, server_default="false")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

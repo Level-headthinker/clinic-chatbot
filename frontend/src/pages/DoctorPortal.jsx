@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Calendar, ClipboardList, LogOut, Moon, Save, Sun, Users, X } from "lucide-react";
+import { Bell, Calendar, CheckCircle2, ClipboardList, LogOut, Moon, Save, Sun, Users, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
@@ -7,6 +7,7 @@ import { useToast } from "../context/ToastContext";
 import { SkeletonBlock } from "../components/Skeleton";
 
 const TABS = [
+  { key: "queue",        label: "Queue",         icon: Users },
   { key: "schedule",     label: "My Schedule",   icon: Calendar },
   { key: "patients",     label: "My Patients",   icon: Users },
   { key: "profile",      label: "Profile",       icon: ClipboardList },
@@ -25,11 +26,12 @@ export default function DoctorPortal() {
   const navigate = useNavigate();
   const { notify } = useToast();
 
-  const [tab, setTab] = useState("schedule");
+  const [tab, setTab] = useState("queue");
   const [doctor, setDoctor] = useState(null);
   const [stats, setStats] = useState(null);
   const [schedule, setSchedule] = useState(null);
   const [patients, setPatients] = useState(null);
+  const [myQueue, setMyQueue] = useState(null);
   const [loading, setLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
 
@@ -37,6 +39,15 @@ export default function DoctorPortal() {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
     localStorage.setItem("theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+
+  const loadQueue = useCallback(async (silent = false) => {
+    try {
+      const res = await api.get("/doctor/my-queue");
+      setMyQueue(res.data);
+    } catch {
+      if (!silent) notify("Failed to load queue.", "error");
+    }
+  }, [notify]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -49,12 +60,13 @@ export default function DoctorPortal() {
       setDoctor(meRes.data);
       setStats(statsRes.data);
       setSchedule(schedRes.data);
+      await loadQueue(true);
     } catch {
       notify("Failed to load portal data.", "error");
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, [notify, loadQueue]);
 
   const loadPatients = useCallback(async () => {
     if (patients) return;
@@ -67,6 +79,12 @@ export default function DoctorPortal() {
   }, [patients, notify]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Poll queue every 20 seconds so doctor sees arrivals without refreshing
+  useEffect(() => {
+    const interval = setInterval(() => loadQueue(true), 20000);
+    return () => clearInterval(interval);
+  }, [loadQueue]);
 
   useEffect(() => {
     if (tab === "patients") loadPatients();
@@ -166,12 +184,162 @@ export default function DoctorPortal() {
           <SkeletonBlock className="skeleton-table" />
         ) : (
           <>
+            {tab === "queue"    && <QueueTab myQueue={myQueue} onRefresh={() => loadQueue(true)} notify={notify} />}
             {tab === "schedule" && <ScheduleTab schedule={schedule} onNotesUpdated={load} />}
             {tab === "patients" && <PatientsTab patients={patients} />}
             {tab === "profile"  && <ProfileTab doctor={doctor} onAvailabilityUpdated={load} />}
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Queue tab ─────────────────────────────────────────────────────────────────
+function QueueTab({ myQueue, onRefresh, notify }) {
+  const [togglingReady, setTogglingReady] = useState(false);
+  const [markingDone, setMarkingDone] = useState(null);
+
+  if (!myQueue) return <SkeletonBlock className="skeleton-table" />;
+
+  const { is_ready, waiting, with_doctor } = myQueue;
+
+  const toggleReady = async () => {
+    setTogglingReady(true);
+    try {
+      await api.post("/doctor/ready");
+      onRefresh();
+    } catch {
+      notify("Failed to update status.", "error");
+    } finally {
+      setTogglingReady(false);
+    }
+  };
+
+  const markDone = async (id) => {
+    setMarkingDone(id);
+    try {
+      await api.put(`/appointments/${id}`, { status: "completed" });
+      onRefresh();
+    } catch {
+      notify("Failed to mark done.", "error");
+    } finally {
+      setMarkingDone(null);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Ready button — the core signal */}
+      <div style={{
+        background: "var(--surface)", border: "1px solid var(--line)",
+        borderRadius: 14, padding: "20px 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+      }}>
+        <div>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 16 }}>
+            {is_ready ? "🟢 You are ready — waiting for receptionist to send next patient" : "🔴 Not ready yet"}
+          </p>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--muted)" }}>
+            {is_ready
+              ? "Receptionist can see this. They will send the next patient to your room."
+              : "Press the button when you are finished with the current patient and ready for the next one."}
+          </p>
+        </div>
+        <button
+          onClick={toggleReady}
+          disabled={togglingReady}
+          style={{
+            padding: "12px 28px", fontSize: 14, fontWeight: 800,
+            border: "none", borderRadius: 10, cursor: "pointer",
+            background: is_ready ? "#ef4444" : "#0d9488",
+            color: "#fff", flexShrink: 0,
+            boxShadow: is_ready ? "0 0 0 3px rgba(239,68,68,0.3)" : "0 0 0 3px rgba(13,148,136,0.3)",
+            transition: "all 0.2s",
+          }}
+        >
+          {togglingReady ? "…" : is_ready ? "Cancel Ready" : "I'm Ready for Next Patient"}
+        </button>
+      </div>
+
+      {/* Currently with doctor */}
+      {with_doctor?.length > 0 && (
+        <Section title="Currently With You" count={with_doctor.length} accent="#f59e0b">
+          {with_doctor.map((a) => (
+            <div key={a.id} style={{
+              display: "flex", alignItems: "center", gap: 14,
+              padding: "12px 16px", background: "rgba(245,158,11,0.07)",
+              borderRadius: 10, borderLeft: "3px solid #f59e0b",
+            }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{a.patient_name}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>
+                  {a.patient_phone}{a.patient_concern ? ` · ${a.patient_concern}` : ""}
+                </p>
+              </div>
+              <button
+                style={{
+                  background: "#10b981", color: "#fff", border: "none",
+                  borderRadius: 8, padding: "7px 16px", fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+                }}
+                onClick={() => markDone(a.id)}
+                disabled={markingDone === a.id}
+              >
+                <CheckCircle2 size={14} /> {markingDone === a.id ? "…" : "Done"}
+              </button>
+            </div>
+          ))}
+        </Section>
+      )}
+
+      {/* Waiting patients */}
+      <Section title="Patients Waiting for You" count={waiting.length} accent="#0d9488">
+        {waiting.length === 0
+          ? <Empty text="No patients checked in yet. They appear here when reception checks them in." />
+          : waiting.map((a, i) => {
+            const waitMins = a.wait_minutes;
+            return (
+              <div key={a.id} style={{
+                display: "flex", alignItems: "center", gap: 14,
+                padding: "12px 16px",
+                background: i === 0 ? "rgba(13,148,136,0.06)" : "var(--surface-2)",
+                borderRadius: 10,
+                borderLeft: i === 0 ? "3px solid #0d9488" : "3px solid transparent",
+              }}>
+                <div style={{
+                  width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                  background: "var(--primary)", color: "#fff",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, fontWeight: 800,
+                }}>{i + 1}</div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{a.patient_name}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>
+                    {a.patient_concern?.slice(0, 60) || a.patient_phone}
+                  </p>
+                </div>
+                {waitMins !== null && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
+                    color: waitMins > 30 ? "#ef4444" : waitMins > 15 ? "#f59e0b" : "#10b981",
+                    background: waitMins > 30 ? "#fef2f2" : waitMins > 15 ? "#fffbeb" : "#f0fdf4",
+                  }}>
+                    {waitMins < 1 ? "Just arrived" : `${waitMins}m`}
+                  </span>
+                )}
+              </div>
+            );
+          })
+        }
+        {waiting.length > 0 && (
+          <p style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>
+            <Bell size={11} style={{ marginRight: 4 }} />
+            Press "I'm Ready" above when you finish with the current patient
+          </p>
+        )}
+      </Section>
     </div>
   );
 }

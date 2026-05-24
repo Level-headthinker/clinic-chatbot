@@ -33,6 +33,10 @@ def _add_missing_columns():
             "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
             "checked_in_at TIMESTAMP WITH TIME ZONE"
         ))
+        conn.execute(text(
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS "
+            "is_ready BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
         conn.commit()
 
 

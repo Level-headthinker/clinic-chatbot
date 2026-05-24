@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Clock, UserCheck, UserX } from "lucide-react";
+import { CheckCircle2, Clock, Stethoscope, UserCheck, UserX } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import { SkeletonBlock } from "../components/Skeleton";
@@ -48,7 +48,7 @@ function Column({ title, accent, icon, count, children }) {
 }
 
 // ── Patient card ──────────────────────────────────────────────────────────────
-function PatientCard({ appt, position, onCheckIn, onUndo, onNoShow, onComplete, loading }) {
+function PatientCard({ appt, position, onCheckIn, onCallIn, onUndo, onNoShow, onComplete, loading }) {
   const slot = new Date(appt.slot_datetime);
   const slotStr = slot.toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
 
@@ -112,6 +112,25 @@ function PatientCard({ appt, position, onCheckIn, onUndo, onNoShow, onComplete, 
             disabled={loading}
           >
             <UserCheck size={13} /> Check in
+          </button>
+        )}
+        {onCallIn && (
+          <button
+            style={{
+              fontSize: 12, padding: "5px 14px", minHeight: "auto",
+              border: "none", borderRadius: 8, cursor: loading ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", gap: 5, fontWeight: 700,
+              background: appt.doctor_is_ready ? "#0d9488" : "var(--surface-2)",
+              color: appt.doctor_is_ready ? "#fff" : "var(--muted)",
+              boxShadow: appt.doctor_is_ready ? "0 0 0 2px #0d9488" : "none",
+              transition: "all 0.2s",
+            }}
+            onClick={() => onCallIn(appt.id)}
+            disabled={loading}
+            title={appt.doctor_is_ready ? "Doctor is ready — send patient in!" : "Waiting for doctor to signal ready"}
+          >
+            <Stethoscope size={13} />
+            {appt.doctor_is_ready ? "Call In ✓" : "Call In"}
           </button>
         )}
         {onUndo && (
@@ -214,10 +233,23 @@ export default function WaitingRoom() {
   const undoCheckIn = async (id) => {
     setActionLoading(true);
     try {
-      await api.post(`/appointments/${id}/checkin`); // toggles back
+      await api.post(`/appointments/${id}/checkin`);
       fetchQueue(true);
     } catch {
       notify("Failed.", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const callIn = async (id) => {
+    setActionLoading(true);
+    try {
+      await api.post(`/appointments/${id}/call-in`);
+      notify("Patient sent to doctor's room.", "success");
+      fetchQueue(true);
+    } catch {
+      notify("Failed to call in patient.", "error");
     } finally {
       setActionLoading(false);
     }
@@ -239,6 +271,7 @@ export default function WaitingRoom() {
   const avgWait = totalWaiting > 0
     ? Math.round(queue.waiting.reduce((sum, a) => sum + (a.wait_minutes || 0), 0) / totalWaiting)
     : 0;
+  const doctorsReady = [...(queue?.waiting ?? [])].filter((a) => a.doctor_is_ready).length;
 
   return (
     <AppLayout
@@ -260,10 +293,11 @@ export default function WaitingRoom() {
       {queue && (
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           {[
-            { label: "Expected today",  value: queue.expected.length, color: "#6366f1" },
-            { label: "In queue",        value: queue.waiting.length,  color: "#0d9488" },
-            { label: "Avg wait",        value: totalWaiting > 0 ? `${avgWait}m` : "—", color: waitColor(avgWait) },
-            { label: "Seen today",      value: queue.done.filter((a) => a.status === "completed").length, color: "#10b981" },
+            { label: "Expected today",   value: queue.expected.length,    color: "#6366f1" },
+            { label: "In queue",         value: queue.waiting.length,     color: "#0d9488" },
+            { label: "With doctor",      value: queue.with_doctor?.length ?? 0, color: "#f59e0b" },
+            { label: "Doctors ready",    value: doctorsReady,             color: doctorsReady > 0 ? "#10b981" : "var(--muted)" },
+            { label: "Seen today",       value: queue.done.filter((a) => a.status === "completed").length, color: "#10b981" },
           ].map((s) => (
             <div key={s.label} style={{
               flex: "1 1 140px", background: "var(--surface)", border: "1px solid var(--line)",
@@ -304,7 +338,22 @@ export default function WaitingRoom() {
                 <PatientCard
                   key={a.id} appt={a}
                   position={i + 1}
+                  onCallIn={callIn}
                   onUndo={undoCheckIn}
+                  onNoShow={(id) => markStatus(id, "no_show")}
+                  loading={actionLoading}
+                />
+              ))
+            }
+          </Column>
+
+          {/* Column 3: With Doctor */}
+          <Column title="With Doctor" accent="#f59e0b" icon={<Stethoscope size={16} />} count={queue.with_doctor?.length ?? 0}>
+            {(queue.with_doctor?.length ?? 0) === 0
+              ? <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No patient with a doctor right now.</p>
+              : queue.with_doctor.map((a) => (
+                <PatientCard
+                  key={a.id} appt={a}
                   onComplete={(id) => markStatus(id, "completed")}
                   onNoShow={(id) => markStatus(id, "no_show")}
                   loading={actionLoading}
@@ -313,7 +362,7 @@ export default function WaitingRoom() {
             }
           </Column>
 
-          {/* Column 3: Done */}
+          {/* Column 4: Done */}
           <Column title="Done Today" accent="#10b981" icon={<CheckCircle2 size={16} />} count={queue.done.length}>
             {queue.done.length === 0
               ? <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No completed appointments yet.</p>

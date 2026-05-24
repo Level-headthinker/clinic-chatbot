@@ -14,12 +14,13 @@ const emptyForm = {
   qualification: "",
   fee: "",
   bio: "",
-  treatments: "",
+  treatments: [],
   timings: [],
 };
 
 export default function Doctors() {
   const [doctors, setDoctors] = useState([]);
+  const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -37,8 +38,9 @@ export default function Doctors() {
   const fetchDoctors = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/doctors/");
-      setDoctors(res.data);
+      const [docRes, svcRes] = await Promise.all([api.get("/doctors/"), api.get("/services/")]);
+      setDoctors(docRes.data);
+      setServices(svcRes.data);
     } catch {
       notify("Failed to load doctors.", "error");
     } finally {
@@ -56,13 +58,22 @@ export default function Doctors() {
     setTimingInput({ day: "Monday", from: "09:00 AM", to: "05:00 PM" });
   };
 
+  const toggleTreatment = (name) => {
+    setForm((f) => ({
+      ...f,
+      treatments: f.treatments.includes(name)
+        ? f.treatments.filter((t) => t !== name)
+        : [...f.treatments, name],
+    }));
+  };
+
   const payloadFromForm = () => ({
     name: form.name,
     specialty: form.specialty,
     qualification: form.qualification,
     fee: form.fee,
     bio: form.bio,
-    treatments: form.treatments.split(",").map((item) => item.trim()).filter(Boolean),
+    treatments: form.treatments,
     timings: form.timings,
     available_slots: [],
   });
@@ -104,7 +115,7 @@ export default function Doctors() {
       qualification: doctor.qualification || "",
       fee: doctor.fee || "",
       bio: doctor.bio || "",
-      treatments: doctor.treatments ? doctor.treatments.join(", ") : "",
+      treatments: doctor.treatments || [],
       timings: doctor.timings || [],
     });
     setShowForm(true);
@@ -166,7 +177,43 @@ export default function Doctors() {
               <input className="input" placeholder="Fee e.g. 1500 PKR" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} />
             </div>
             <textarea className="input textarea" placeholder="Short bio" value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
-            <input className="input" placeholder="Treatments, comma separated" value={form.treatments} onChange={(e) => setForm({ ...form, treatments: e.target.value })} />
+
+            <div className="field">
+              <label>Services this doctor can perform</label>
+              {services.length === 0 ? (
+                <p style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 0" }}>
+                  No services added yet. Go to <strong>Services</strong> to build your clinic's checklist first.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+                  {services.map((s) => {
+                    const checked = form.treatments.includes(s.name);
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => toggleTreatment(s.name)}
+                        style={{
+                          padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+                          border: "2px solid",
+                          borderColor: checked ? "var(--primary)" : "var(--line)",
+                          background: checked ? "var(--primary)" : "var(--surface-2)",
+                          color: checked ? "#fff" : "var(--text)",
+                          cursor: "pointer", transition: "all 0.15s",
+                        }}
+                      >
+                        {checked ? "✓ " : ""}{s.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {form.treatments.length > 0 && (
+                <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+                  Selected: {form.treatments.join(", ")}
+                </p>
+              )}
+            </div>
 
             <div className="field">
               <label>Clinic timings</label>

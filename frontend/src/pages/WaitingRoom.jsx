@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Clock, DoorOpen, Search, Stethoscope, UserCheck, UserPlus, UserX, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bell, CheckCircle2, Clock, DoorOpen, Search, Stethoscope, UserCheck, UserPlus, UserX, X } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import { SkeletonBlock } from "../components/Skeleton";
@@ -188,6 +188,75 @@ function DoneCard({ appt }) {
       <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, textTransform: "capitalize" }}>
         {appt.status}
       </span>
+    </div>
+  );
+}
+
+// ── Doctor Ready Banner ───────────────────────────────────────────────────────
+function DoctorReadyBanner({ alerts, onCallIn, onDismiss, loading }) {
+  if (!alerts || alerts.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+      {alerts.map((alert) => (
+        <div key={alert.doctorId} style={{
+          background: "linear-gradient(135deg, #0d9488, #0f766e)",
+          borderRadius: 12, padding: "14px 18px",
+          display: "flex", alignItems: "center", gap: 14,
+          boxShadow: "0 4px 20px rgba(13,148,136,0.35)",
+          animation: "pulse-border 1.5s ease-in-out infinite",
+        }}>
+          {/* Bell icon */}
+          <div style={{
+            width: 38, height: 38, borderRadius: "50%",
+            background: "rgba(255,255,255,0.2)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}>
+            <Bell size={18} color="#fff" />
+          </div>
+
+          {/* Message */}
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: 14, color: "#fff" }}>
+              Dr. {alert.doctorName} is ready for the next patient!
+            </p>
+            {alert.nextPatient && (
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "rgba(255,255,255,0.85)" }}>
+                Next in queue: <strong>{alert.nextPatient.patient_name}</strong>
+                {alert.nextPatient.service_name ? ` — ${alert.nextPatient.service_name}` : ""}
+              </p>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            {alert.nextPatient && (
+              <button
+                onClick={() => onCallIn(alert.nextPatient.id)}
+                disabled={loading}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, border: "none",
+                  background: "#fff", color: "#0d9488",
+                  fontWeight: 800, fontSize: 13, cursor: loading ? "not-allowed" : "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                <Stethoscope size={13} /> Call In
+              </button>
+            )}
+            <button
+              onClick={() => onDismiss(alert.doctorId)}
+              style={{
+                background: "rgba(255,255,255,0.2)", border: "none",
+                borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "#fff",
+              }}
+              title="Dismiss"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -427,20 +496,57 @@ export default function WaitingRoom() {
   const [actionLoading, setActionLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [showWalkIn, setShowWalkIn] = useState(false);
+  const [readyAlerts, setReadyAlerts] = useState([]); // [{doctorId, doctorName, nextPatient}]
+  const prevReadyDoctors = useRef(new Set());
+  const dismissedDoctors = useRef(new Set());
   const { notify } = useToast();
 
   const fetchQueue = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const res = await api.get("/appointments/queue");
-      setQueue(res.data);
+      const data = res.data;
+      setQueue(data);
       setLastRefresh(new Date());
+
+      // Detect doctors who just became ready
+      const nowReadyDoctors = new Map();
+      [...(data.waiting || [])].forEach((a) => {
+        if (a.doctor_is_ready && !nowReadyDoctors.has(a.doctor_id)) {
+          nowReadyDoctors.set(a.doctor_id, { doctorId: a.doctor_id, doctorName: a.doctor_name, nextPatient: a });
+        }
+      });
+
+      // Find newly ready doctors (not previously ready and not dismissed)
+      const newAlerts = [];
+      nowReadyDoctors.forEach((alert, doctorId) => {
+        if (!prevReadyDoctors.current.has(doctorId) && !dismissedDoctors.current.has(doctorId)) {
+          newAlerts.push(alert);
+        }
+      });
+
+      // Also keep existing alerts if doctor still ready and not dismissed
+      setReadyAlerts((prev) => {
+        const existing = prev.filter(
+          (a) => nowReadyDoctors.has(a.doctorId) && !dismissedDoctors.current.has(a.doctorId)
+        );
+        const existingIds = new Set(existing.map((a) => a.doctorId));
+        const fresh = newAlerts.filter((a) => !existingIds.has(a.doctorId));
+        return [...existing, ...fresh];
+      });
+
+      prevReadyDoctors.current = new Set(nowReadyDoctors.keys());
     } catch {
       if (!silent) notify("Failed to load queue.", "error");
     } finally {
       setLoading(false);
     }
   }, [notify]);
+
+  const dismissAlert = (doctorId) => {
+    dismissedDoctors.current.add(doctorId);
+    setReadyAlerts((prev) => prev.filter((a) => a.doctorId !== doctorId));
+  };
 
   useEffect(() => {
     fetchQueue();
@@ -477,6 +583,9 @@ export default function WaitingRoom() {
     try {
       await api.post(`/appointments/${id}/call-in`);
       notify("Patient sent to doctor's room.", "success");
+      // Doctor is no longer ready after calling in — reset dismissed set so
+      // next time they signal ready the banner shows again
+      dismissedDoctors.current.clear();
       fetchQueue(true);
     } catch {
       notify("Failed to call in patient.", "error");
@@ -526,6 +635,14 @@ export default function WaitingRoom() {
         </div>
       }
     >
+      {/* Doctor ready alerts */}
+      <DoctorReadyBanner
+        alerts={readyAlerts}
+        onCallIn={callIn}
+        onDismiss={dismissAlert}
+        loading={actionLoading}
+      />
+
       {/* Stats strip */}
       {queue && (
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>

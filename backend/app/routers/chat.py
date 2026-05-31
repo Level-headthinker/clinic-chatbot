@@ -1,10 +1,12 @@
+from collections import defaultdict
 from datetime import datetime, timedelta
 import re
+import time
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -54,8 +56,8 @@ SPECIALTY_KEYWORDS = {
 
 class MessageRequest(BaseModel):
     session_token: Optional[str] = None
-    branch_slug: str
-    message: str
+    branch_slug: str = Field(max_length=100)
+    message: str = Field(min_length=1, max_length=1000)
 
 
 class MessageResponse(BaseModel):
@@ -291,6 +293,25 @@ def try_save_lead(session, tenant_id, branch_id, db) -> bool:
     return True
 
 
+# ── Chat rate limiter (per IP) ────────────────────────────────────────────────
+_chat_attempts: dict[str, list[float]] = defaultdict(list)
+
+def _chat_rate_limit(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    window = 60  # 1 minute
+    max_msgs = 30  # max 30 messages per minute per IP
+    cutoff = now - window
+    attempts = [t for t in _chat_attempts[ip] if t > cutoff]
+    _chat_attempts[ip] = attempts
+    if len(attempts) >= max_msgs:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many messages. Please slow down."
+        )
+    _chat_attempts[ip].append(now)
+
+
 # ════════════════════════════════════════════════════════════
 # MAIN CHAT ENDPOINT
 # Phases 1 + 2 + 4 all active in this single function
@@ -298,6 +319,7 @@ def try_save_lead(session, tenant_id, branch_id, db) -> bool:
 
 @router.post("/message", response_model=MessageResponse)
 def send_message(data: MessageRequest, request: Request, db: Session = Depends(get_db)):
+    _chat_rate_limit(request)
 
     # ── PHASE 1: INPUT GUARD ─────────────────────────────────
     client_ip = request.client.host if request.client else "unknown"

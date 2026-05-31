@@ -109,6 +109,20 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
+
+# Block requests larger than 1MB — prevents memory exhaustion attacks
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as StarletteResponse
+
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > 1_048_576:  # 1MB
+            return StarletteResponse("Request too large", status_code=413)
+        return await call_next(request)
+
+app.add_middleware(MaxBodySizeMiddleware)
+
 app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(doctors.router)

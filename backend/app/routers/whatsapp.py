@@ -182,6 +182,10 @@ async def receive_webhook(request: Request):
                 if not text:
                     continue
 
+                # Truncate oversized messages — prevents prompt injection attacks
+                if len(text) > 1000:
+                    text = text[:1000]
+
                 _handle_message(wa_from, text, phone_number_id)
 
     return {"status": "ok"}

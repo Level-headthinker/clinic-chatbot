@@ -31,6 +31,20 @@ Thumbs.db
 .idea/
 *.swp
 
+# Claude Code settings
+.claude/settings.local.json
+
+# Project snapshot tools
+project_snapshot*.json
+project_json.py
+project_to_json.py
+
+# Word documents
+*.docx
+
+# Old hosting configs
+render.yaml
+
 # Logs
 *.log
 logs/

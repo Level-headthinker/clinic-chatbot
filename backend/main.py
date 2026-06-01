@@ -13,31 +13,36 @@ from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 
-def _add_missing_columns():
-    """Safely add new columns to existing tables (idempotent)."""
+def _run_sql(conn, sql: str, label: str = ""):
+    """Run a single SQL statement, log failures but never crash startup."""
     from sqlalchemy import text
+    try:
+        conn.execute(text(sql))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"⚠️  Migration skipped [{label}]: {e}")
+
+
+def _add_missing_columns():
+    """Safely add new columns to existing tables — each statement is independent."""
     with engine.connect() as conn:
-        conn.execute(text(
-            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
-            "reminder_sent BOOLEAN NOT NULL DEFAULT FALSE"
-        ))
-        conn.execute(text(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
-            "doctor_id UUID REFERENCES doctors(id)"
-        ))
-        conn.execute(text(
-            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
-            "checked_in BOOLEAN NOT NULL DEFAULT FALSE"
-        ))
-        conn.execute(text(
-            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
-            "checked_in_at TIMESTAMP WITH TIME ZONE"
-        ))
-        conn.execute(text(
-            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS "
-            "is_ready BOOLEAN NOT NULL DEFAULT FALSE"
-        ))
-        conn.execute(text("""
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN NOT NULL DEFAULT FALSE",
+            "appointments.reminder_sent")
+        _run_sql(conn,
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS doctor_id UUID REFERENCES doctors(id)",
+            "users.doctor_id")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS checked_in BOOLEAN NOT NULL DEFAULT FALSE",
+            "appointments.checked_in")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMP WITH TIME ZONE",
+            "appointments.checked_in_at")
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS is_ready BOOLEAN NOT NULL DEFAULT FALSE",
+            "doctors.is_ready")
+        _run_sql(conn, """
             CREATE TABLE IF NOT EXISTS services (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id UUID NOT NULL REFERENCES tenants(id),
@@ -47,9 +52,8 @@ def _add_missing_columns():
                 price NUMERIC(10,2),
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMPTZ DEFAULT now()
-            )
-        """))
-        conn.execute(text("""
+            )""", "create services")
+        _run_sql(conn, """
             CREATE TABLE IF NOT EXISTS rooms (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id UUID NOT NULL REFERENCES tenants(id),
@@ -59,26 +63,21 @@ def _add_missing_columns():
                 current_appointment_id UUID,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMPTZ DEFAULT now()
-            )
-        """))
-        conn.execute(text(
-            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
-            "room_id UUID REFERENCES rooms(id)"
-        ))
-        conn.execute(text(
-            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
-            "service_name VARCHAR(255)"
-        ))
-        # Rename old table if it exists under the old name
-        conn.execute(text("""
+            )""", "create rooms")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS room_id UUID REFERENCES rooms(id)",
+            "appointments.room_id")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_name VARCHAR(255)",
+            "appointments.service_name")
+        _run_sql(conn, """
             DO $$ BEGIN
                 IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'treatment_courses')
                    AND NOT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'treatment_sessions')
                 THEN ALTER TABLE treatment_courses RENAME TO treatment_sessions;
                 END IF;
-            END $$;
-        """))
-        conn.execute(text("""
+            END $$""", "rename treatment_courses table")
+        _run_sql(conn, """
             CREATE TABLE IF NOT EXISTS treatment_sessions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id UUID NOT NULL REFERENCES tenants(id),
@@ -93,18 +92,15 @@ def _add_missing_columns():
                 notes TEXT,
                 created_at TIMESTAMPTZ DEFAULT now(),
                 updated_at TIMESTAMPTZ
-            )
-        """))
-        # rename old column if migrating from price_per_course
-        conn.execute(text("""
+            )""", "create treatment_sessions")
+        _run_sql(conn, """
             DO $$ BEGIN
                 IF EXISTS (SELECT FROM information_schema.columns
                            WHERE table_name='treatment_sessions' AND column_name='price_per_course')
                 THEN ALTER TABLE treatment_sessions RENAME COLUMN price_per_course TO price_per_session;
                 END IF;
-            END $$;
-        """))
-        conn.commit()
+            END $$""", "rename price_per_course column")
+        print("✅ Migrations complete")
 
 
 def create_tables_with_retry(retries: int = 5, delay: int = 5):

@@ -27,6 +27,55 @@ def _run_sql(conn, sql: str, label: str = ""):
 def _add_missing_columns():
     """Safely add new columns to existing tables — each statement is independent."""
     with engine.connect() as conn:
+        # branches — columns added after initial deploy
+        _run_sql(conn,
+            "ALTER TABLE branches ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) DEFAULT 'Asia/Karachi'",
+            "branches.timezone")
+        _run_sql(conn,
+            "ALTER TABLE branches ADD COLUMN IF NOT EXISTS working_hours TEXT",
+            "branches.working_hours")
+        _run_sql(conn,
+            "ALTER TABLE branches ADD COLUMN IF NOT EXISTS bot_name VARCHAR(100)",
+            "branches.bot_name")
+        _run_sql(conn,
+            "ALTER TABLE branches ADD COLUMN IF NOT EXISTS welcome_message TEXT",
+            "branches.welcome_message")
+
+        # tenants — columns added after initial deploy
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'starter'",
+            "tenants.plan")
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bot_name VARCHAR(100) DEFAULT 'ClinicBot'",
+            "tenants.bot_name")
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS welcome_message TEXT",
+            "tenants.welcome_message")
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS primary_color VARCHAR(7) DEFAULT '#2563eb'",
+            "tenants.primary_color")
+
+        # doctors — columns added after initial deploy
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS branch_id UUID REFERENCES branches(id)",
+            "doctors.branch_id")
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS qualification VARCHAR(255)",
+            "doctors.qualification")
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS bio TEXT",
+            "doctors.bio")
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS fee VARCHAR(50)",
+            "doctors.fee")
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS treatments TEXT[]",
+            "doctors.treatments")
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS timings JSONB DEFAULT '[]'",
+            "doctors.timings")
+
+        # appointments — columns added after initial deploy
         _run_sql(conn,
             "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN NOT NULL DEFAULT FALSE",
             "appointments.reminder_sent")

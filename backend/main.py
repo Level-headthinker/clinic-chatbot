@@ -8,7 +8,7 @@ from app.database import engine, Base
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_courses
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -69,6 +69,23 @@ def _add_missing_columns():
             "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS "
             "service_name VARCHAR(255)"
         ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS treatment_courses (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id),
+                branch_id UUID REFERENCES branches(id),
+                patient_id UUID NOT NULL REFERENCES patients(id),
+                patient_phone VARCHAR(50),
+                service_name VARCHAR(255) NOT NULL,
+                total_sessions INTEGER NOT NULL,
+                completed_sessions INTEGER NOT NULL DEFAULT 0,
+                price_per_course NUMERIC(10,2),
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ
+            )
+        """))
         conn.commit()
 
 
@@ -147,6 +164,7 @@ app.include_router(notifications.router)
 app.include_router(doctor_portal.router)
 app.include_router(services.router)
 app.include_router(rooms.router)
+app.include_router(treatment_courses.router)
 
 
 @app.get("/")

@@ -42,6 +42,7 @@ export const AuthProvider = ({ children }) => {
           is_superadmin: response.data.is_superadmin,
           role: response.data.role,
           doctor_id: response.data.doctor_id || null,
+          plan: response.data.plan || "starter",
         };
         localStorage.setItem("user", JSON.stringify(refreshedUser));
         setUser(refreshedUser);
@@ -87,8 +88,9 @@ export const AuthProvider = ({ children }) => {
       branch_slug,
       user_name,
       is_superadmin,
-      role: response.data.role,      // never default — use exactly what the backend sends
+      role: response.data.role,
       doctor_id: response.data.doctor_id || null,
+      plan: response.data.plan || "starter",
     };
 
     localStorage.setItem("access_token", response.data.access_token);

@@ -100,6 +100,7 @@ class TokenResponse(BaseModel):
     is_superadmin: bool
     role: str
     doctor_id: Optional[str] = None
+    plan: str = "starter"
 
 
 class MeResponse(BaseModel):
@@ -112,6 +113,7 @@ class MeResponse(BaseModel):
     branch_slug: Optional[str]
     is_superadmin: bool
     doctor_id: Optional[str] = None
+    plan: str = "starter"
 
 
 @router.post("/register")
@@ -224,6 +226,7 @@ def login(
         "is_superadmin": user.is_superadmin,
         "role": user.role,
         "doctor_id": str(user.doctor_id) if user.doctor_id else None,
+        "plan": tenant.plan or "starter",
     }
 
 
@@ -253,4 +256,5 @@ def get_me(
         branch_slug=_resolve_branch_slug(current_user, tenant, db) if tenant else None,
         is_superadmin=current_user.is_superadmin,
         doctor_id=str(current_user.doctor_id) if current_user.doctor_id else None,
+        plan=tenant.plan if tenant else "starter",
     )

@@ -25,6 +25,10 @@ import Landing from "./pages/Landing";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./context/ToastContext";
 import { SkeletonBlock } from "./components/Skeleton";
+import { usePlan } from "./hooks/usePlan";
+import { UPGRADE_MESSAGE, PLANS } from "./config/plans";
+import { Lock } from "lucide-react";
+import AppLayout from "./components/AppLayout";
 
 function ProtectedRoute({ children }) {
   const { user, loading, waking } = useAuth();
@@ -65,6 +69,46 @@ function DoctorRoute({ children }) {
   return children;
 }
 
+function PlanRoute({ children, feature }) {
+  const { user, loading } = useAuth();
+  const { can, plan } = usePlan();
+
+  if (loading) return <div className="app-main" style={{ marginLeft: 0 }}><SkeletonBlock className="panel skeleton-table" /></div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === "doctor") return <Navigate to="/doctor" replace />;
+
+  if (!can(feature)) {
+    const info = UPGRADE_MESSAGE[feature];
+    const targetPlan = PLANS[info?.need?.toLowerCase()];
+    return (
+      <AppLayout title={info?.need ? `${info.need} Plan Required` : "Upgrade Required"} subtitle="">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", textAlign: "center" }}>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--accent-soft)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+            <Lock size={28} color="var(--accent)" />
+          </div>
+          <h2 style={{ margin: "0 0 8px" }}>Upgrade to {info?.need}</h2>
+          <p style={{ color: "var(--muted)", maxWidth: 380, marginBottom: 24 }}>{info?.reason}</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
+            <span className="badge" style={{ background: PLANS[plan]?.color, color: "#fff" }}>{PLANS[plan]?.label}</span>
+            <span style={{ color: "var(--muted)" }}>→</span>
+            <span className="badge" style={{ background: targetPlan?.color, color: "#fff" }}>{targetPlan?.label}</span>
+          </div>
+          <a
+            href="https://wa.me/923000000000?text=I want to upgrade my clinic plan"
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-primary"
+            style={{ textDecoration: "none" }}
+          >
+            Contact us to upgrade
+          </a>
+        </div>
+      </AppLayout>
+    );
+  }
+  return children;
+}
+
 function SuperAdminRoute({ children }) {
   const { user, loading, waking } = useAuth();
   if (loading) {
@@ -102,17 +146,18 @@ export default function App() {
               <Route path="/patients" element={<ProtectedRoute><Patients /></ProtectedRoute>} />
               <Route path="/patients/:id" element={<ProtectedRoute><PatientDetail /></ProtectedRoute>} />
               <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
-              <Route path="/branches" element={<ProtectedRoute><Branches /></ProtectedRoute>} />
+              <Route path="/branches" element={<PlanRoute feature="multi_branch"><Branches /></PlanRoute>} />
               <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
               <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
-              <Route path="/voice" element={<ProtectedRoute><Voice /></ProtectedRoute>} />
-              <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+              <Route path="/voice" element={<PlanRoute feature="voice_agent"><Voice /></PlanRoute>} />
+              <Route path="/analytics" element={<PlanRoute feature="analytics"><Analytics /></PlanRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/waiting-room" element={<ProtectedRoute><WaitingRoom /></ProtectedRoute>} />
               <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
               <Route path="/book/:slug" element={<BookingPage />} />
               <Route path="/doctor" element={<DoctorRoute><DoctorPortal /></DoctorRoute>} />
               <Route path="/super" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </BrowserRouter>
         </AuthProvider>

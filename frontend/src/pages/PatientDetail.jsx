@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, MessageSquare, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, MessageSquare, Plus, Trash2, X } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -41,6 +41,13 @@ export default function PatientDetail() {
   const [noteForm, setNoteForm] = useState({ type: "note", content: "", channel_target: "" });
   const [showNoteForm, setShowNoteForm] = useState(false);
 
+  // Treatment courses state
+  const [courses, setCourses] = useState([]);
+  const [showCourseForm, setShowCourseForm] = useState(false);
+  const [courseForm, setCourseForm] = useState({ service_name: "", total_sessions: 4, price_per_course: "" });
+  const [savingCourse, setSavingCourse] = useState(false);
+  const [services, setServices] = useState([]);
+
   const { notify } = useToast();
 
   const fetchPatient = useCallback(async () => {
@@ -78,12 +85,28 @@ export default function PatientDetail() {
     } catch { /* non-critical */ }
   }, [id]);
 
+  const fetchCourses = useCallback(async () => {
+    try {
+      const res = await api.get("/courses/", { params: { patient_id: id } });
+      setCourses(res.data);
+    } catch { /* non-critical */ }
+  }, [id]);
+
+  const fetchServices = useCallback(async () => {
+    try {
+      const res = await api.get("/services/");
+      setServices(res.data);
+    } catch { /* non-critical */ }
+  }, []);
+
   useEffect(() => {
     fetchPatient();
     fetchDoctors();
     fetchPrescriptions();
     fetchNotes();
-  }, [fetchPatient, fetchDoctors, fetchPrescriptions, fetchNotes]);
+    fetchCourses();
+    fetchServices();
+  }, [fetchPatient, fetchDoctors, fetchPrescriptions, fetchNotes, fetchCourses, fetchServices]);
 
   const addMedicine = () => {
     if (!medInput.medicine) return;
@@ -170,6 +193,46 @@ export default function PatientDetail() {
       await api.delete(`/notes/${noteId}`);
       fetchNotes();
     } catch { notify("Failed to delete.", "error"); }
+  };
+
+  const createCourse = async (e) => {
+    e.preventDefault();
+    setSavingCourse(true);
+    try {
+      await api.post("/courses/", {
+        patient_id: id,
+        service_name: courseForm.service_name,
+        total_sessions: parseInt(courseForm.total_sessions),
+        price_per_course: courseForm.price_per_course ? parseFloat(courseForm.price_per_course) : null,
+      });
+      notify("Course created.", "success");
+      setCourseForm({ service_name: "", total_sessions: 4, price_per_course: "" });
+      setShowCourseForm(false);
+      fetchCourses();
+    } catch (err) {
+      notify(err?.response?.data?.detail || "Failed to create course.", "error");
+    } finally {
+      setSavingCourse(false);
+    }
+  };
+
+  const completeSession = async (courseId) => {
+    try {
+      await api.post(`/courses/${courseId}/session`);
+      notify("Session marked as done.", "success");
+      fetchCourses();
+    } catch (err) {
+      notify(err?.response?.data?.detail || "Failed.", "error");
+    }
+  };
+
+  const deleteCourse = async (courseId) => {
+    if (!window.confirm("Remove this course?")) return;
+    try {
+      await api.delete(`/courses/${courseId}`);
+      notify("Course removed.", "success");
+      fetchCourses();
+    } catch { notify("Failed.", "error"); }
   };
 
   if (loading) {
@@ -265,6 +328,139 @@ export default function PatientDetail() {
                 )}
               </article>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Treatment Courses ─────────────────────────────────── */}
+      <section className="table-panel">
+        <div className="panel-header">
+          <h2>Treatment courses</h2>
+          <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => setShowCourseForm((s) => !s)}>
+            <Plus size={14} /> {showCourseForm ? "Close" : "New course"}
+          </button>
+        </div>
+
+        {showCourseForm && (
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--line)" }}>
+            <form onSubmit={createCourse} className="form-stack" style={{ margin: 0 }}>
+              <div className="form-grid">
+                {services.length > 0 ? (
+                  <select
+                    className="select"
+                    value={courseForm.service_name}
+                    onChange={(e) => setCourseForm((f) => ({ ...f, service_name: e.target.value }))}
+                    required
+                  >
+                    <option value="">Select treatment</option>
+                    {services.map((s) => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="input"
+                    placeholder="Treatment name *"
+                    value={courseForm.service_name}
+                    onChange={(e) => setCourseForm((f) => ({ ...f, service_name: e.target.value }))}
+                    required
+                  />
+                )}
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  max="100"
+                  placeholder="Total sessions *"
+                  value={courseForm.total_sessions}
+                  onChange={(e) => setCourseForm((f) => ({ ...f, total_sessions: e.target.value }))}
+                  required
+                />
+                <input
+                  className="input"
+                  type="number"
+                  placeholder="Package price (PKR)"
+                  value={courseForm.price_per_course}
+                  onChange={(e) => setCourseForm((f) => ({ ...f, price_per_course: e.target.value }))}
+                />
+              </div>
+              <div className="action-row">
+                <button className="btn btn-primary" type="submit" disabled={savingCourse}>
+                  {savingCourse ? "Saving..." : "Create course"}
+                </button>
+                <button className="btn btn-secondary" type="button" onClick={() => setShowCourseForm(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {courses.length === 0 ? (
+          <p style={{ padding: "14px 20px", color: "var(--muted)", fontSize: 13 }}>No treatment courses yet.</p>
+        ) : (
+          <div style={{ padding: "12px 20px" }} className="form-stack">
+            {["active", "completed"].map((statusGroup) => {
+              const group = courses.filter((c) => c.status === statusGroup);
+              if (group.length === 0) return null;
+              return (
+                <div key={statusGroup}>
+                  <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--muted)", letterSpacing: "0.05em" }}>
+                    {statusGroup === "active" ? "Active" : "Completed"}
+                  </p>
+                  <div className="form-stack" style={{ gap: 8 }}>
+                    {group.map((course) => (
+                      <div key={course.id} style={{
+                        background: "var(--bg)", border: "1px solid var(--line)",
+                        borderRadius: 10, padding: "14px 16px",
+                        opacity: course.status === "completed" ? 0.75 : 1,
+                      }}>
+                        <div className="panel-header" style={{ padding: 0, borderBottom: 0, marginBottom: 10 }}>
+                          <div>
+                            <strong style={{ fontSize: 14 }}>{course.service_name}</strong>
+                            {course.price_per_course && (
+                              <span className="badge badge-success" style={{ marginLeft: 8, fontSize: 11 }}>
+                                PKR {course.price_per_course.toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                          {course.status === "completed" && (
+                            <span className="badge badge-success" style={{ fontSize: 11 }}>
+                              <CheckCircle2 size={11} style={{ marginRight: 4 }} />Completed
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: course.status === "active" ? 12 : 0 }}>
+                          <SessionDots total={course.total_sessions} completed={course.completed_sessions} />
+                          <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>
+                            {course.completed_sessions} of {course.total_sessions} done
+                            {course.status === "active" && ` · ${course.remaining_sessions} left`}
+                          </span>
+                        </div>
+
+                        {course.status === "active" && (
+                          <div className="action-row" style={{ margin: 0 }}>
+                            <button
+                              className="btn btn-primary"
+                              style={{ fontSize: 12 }}
+                              onClick={() => completeSession(course.id)}
+                            >
+                              <CheckCircle2 size={13} /> Mark session done
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              style={{ fontSize: 12 }}
+                              onClick={() => deleteCourse(course.id)}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
@@ -470,4 +666,24 @@ function noteTypeBadge(type) {
   if (type === "email") return "";
   if (type === "call") return "badge-warning";
   return "";
+}
+
+function SessionDots({ total, completed }) {
+  const visible = Math.min(total, 12);
+  const extra = total > 12 ? total - 12 : 0;
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+      {Array.from({ length: visible }).map((_, i) => (
+        <span key={i} style={{
+          width: 11, height: 11, borderRadius: "50%", flexShrink: 0,
+          background: i < completed ? "var(--accent)" : "transparent",
+          border: i < completed ? "none" : "2px solid var(--muted)",
+          transition: "background 0.2s",
+        }} />
+      ))}
+      {extra > 0 && (
+        <span style={{ fontSize: 11, color: "var(--muted)" }}>+{extra}</span>
+      )}
+    </span>
+  );
 }

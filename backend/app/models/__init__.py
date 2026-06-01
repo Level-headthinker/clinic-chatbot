@@ -13,3 +13,4 @@ from app.models.prescription import Prescription
 from app.models.note import Note
 from app.models.service import Service
 from app.models.room import Room
+from app.models.treatment_course import TreatmentCourse

@@ -339,13 +339,13 @@ function WalkInModal({ onClose, onSave }) {
               <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full name" />
             </div>
             <div>
-              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Phone</label>
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Phone *</label>
               <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="03xx-xxxxxxx" />
             </div>
             <button
               className="btn btn-primary"
               style={{ marginTop: 4 }}
-              disabled={!form.name.trim()}
+              disabled={!form.name.trim() || !form.phone.trim()}
               onClick={() => setStep(2)}
             >
               Next: Select Service

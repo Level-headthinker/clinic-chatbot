@@ -25,8 +25,8 @@ class PrescriptionItem(BaseModel):
 
 class VisitCreate(BaseModel):
     patient_id: str
-    doctor_id: Optional[str] = None
-    complaint: Optional[str] = None
+    doctor_id: str
+    complaint: str = Field(..., min_length=3)
     diagnosis: Optional[str] = None
     prescription: List[PrescriptionItem] = Field(default_factory=list)
     tests_ordered: Optional[str] = None

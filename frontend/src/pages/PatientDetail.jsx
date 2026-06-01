@@ -130,7 +130,7 @@ export default function PatientDetail() {
     try {
       await api.post("/visits/", {
         patient_id: id,
-        doctor_id: visitForm.doctor_id || null,
+        doctor_id: visitForm.doctor_id,
         complaint: visitForm.complaint,
         diagnosis: visitForm.diagnosis,
         prescription: visitForm.prescription,
@@ -626,13 +626,13 @@ export default function PatientDetail() {
             <form onSubmit={addVisit}>
               <div className="modal-body form-stack">
                 <div className="form-grid">
-                  <select className="select" value={visitForm.doctor_id} onChange={(e) => setVisitForm({ ...visitForm, doctor_id: e.target.value })}>
-                    <option value="">Select doctor</option>
+                  <select className="select" required value={visitForm.doctor_id} onChange={(e) => setVisitForm({ ...visitForm, doctor_id: e.target.value })}>
+                    <option value="">Select doctor *</option>
                     {doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>Dr. {doctor.name} - {doctor.specialty}</option>)}
                   </select>
                   <input className="input" type="number" placeholder="Consultation fee" value={visitForm.fee} onChange={(e) => setVisitForm({ ...visitForm, fee: e.target.value })} />
                 </div>
-                <textarea className="input textarea" placeholder="Patient complaint" value={visitForm.complaint} onChange={(e) => setVisitForm({ ...visitForm, complaint: e.target.value })} />
+                <textarea required className="input textarea" placeholder="Patient complaint *" value={visitForm.complaint} onChange={(e) => setVisitForm({ ...visitForm, complaint: e.target.value })} />
                 <textarea className="input textarea" placeholder="Diagnosis" value={visitForm.diagnosis} onChange={(e) => setVisitForm({ ...visitForm, diagnosis: e.target.value })} />
                 <div className="field">
                   <label>Prescription</label>

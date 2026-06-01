@@ -44,7 +44,7 @@ export default function PatientDetail() {
   // Treatment courses state
   const [courses, setCourses] = useState([]);
   const [showCourseForm, setShowCourseForm] = useState(false);
-  const [courseForm, setCourseForm] = useState({ service_name: "", total_sessions: 4, price_per_course: "" });
+  const [courseForm, setCourseForm] = useState({ service_name: "", total_sessions: 4, price_per_session: "" });
   const [savingCourse, setSavingCourse] = useState(false);
   const [services, setServices] = useState([]);
 
@@ -87,7 +87,7 @@ export default function PatientDetail() {
 
   const fetchCourses = useCallback(async () => {
     try {
-      const res = await api.get("/courses/", { params: { patient_id: id } });
+      const res = await api.get("/sessions/", { params: { patient_id: id } });
       setCourses(res.data);
     } catch { /* non-critical */ }
   }, [id]);
@@ -199,14 +199,14 @@ export default function PatientDetail() {
     e.preventDefault();
     setSavingCourse(true);
     try {
-      await api.post("/courses/", {
+      await api.post("/sessions/", {
         patient_id: id,
         service_name: courseForm.service_name,
         total_sessions: parseInt(courseForm.total_sessions),
-        price_per_course: courseForm.price_per_course ? parseFloat(courseForm.price_per_course) : null,
+        price_per_session: courseForm.price_per_session ? parseFloat(courseForm.price_per_session) : null,
       });
       notify("Course created.", "success");
-      setCourseForm({ service_name: "", total_sessions: 4, price_per_course: "" });
+      setCourseForm({ service_name: "", total_sessions: 4, price_per_session: "" });
       setShowCourseForm(false);
       fetchCourses();
     } catch (err) {
@@ -218,7 +218,7 @@ export default function PatientDetail() {
 
   const completeSession = async (courseId) => {
     try {
-      await api.post(`/courses/${courseId}/session`);
+      await api.post(`/sessions/${courseId}/complete`);
       notify("Session marked as done.", "success");
       fetchCourses();
     } catch (err) {
@@ -227,10 +227,10 @@ export default function PatientDetail() {
   };
 
   const deleteCourse = async (courseId) => {
-    if (!window.confirm("Remove this course?")) return;
+    if (!window.confirm("Remove this session package?")) return;
     try {
-      await api.delete(`/courses/${courseId}`);
-      notify("Course removed.", "success");
+      await api.delete(`/sessions/${courseId}`);
+      notify("Session package removed.", "success");
       fetchCourses();
     } catch { notify("Failed.", "error"); }
   };
@@ -379,9 +379,9 @@ export default function PatientDetail() {
                 <input
                   className="input"
                   type="number"
-                  placeholder="Package price (PKR)"
-                  value={courseForm.price_per_course}
-                  onChange={(e) => setCourseForm((f) => ({ ...f, price_per_course: e.target.value }))}
+                  placeholder="Price per session (PKR)"
+                  value={courseForm.price_per_session}
+                  onChange={(e) => setCourseForm((f) => ({ ...f, price_per_session: e.target.value }))}
                 />
               </div>
               <div className="action-row">
@@ -416,9 +416,9 @@ export default function PatientDetail() {
                         <div className="panel-header" style={{ padding: 0, borderBottom: 0, marginBottom: 10 }}>
                           <div>
                             <strong style={{ fontSize: 14 }}>{course.service_name}</strong>
-                            {course.price_per_course && (
-                              <span className="badge badge-success" style={{ marginLeft: 8, fontSize: 11 }}>
-                                PKR {course.price_per_course.toLocaleString()}
+                            {course.price_per_session && (
+                              <span className="badge" style={{ marginLeft: 8, fontSize: 11, background: "var(--accent-soft)", color: "var(--accent)" }}>
+                                PKR {course.price_per_session.toLocaleString()}/session
                               </span>
                             )}
                           </div>
@@ -429,13 +429,30 @@ export default function PatientDetail() {
                           )}
                         </div>
 
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: course.status === "active" ? 12 : 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
                           <SessionDots total={course.total_sessions} completed={course.completed_sessions} />
                           <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>
                             {course.completed_sessions} of {course.total_sessions} done
                             {course.status === "active" && ` · ${course.remaining_sessions} left`}
                           </span>
                         </div>
+                        {course.price_per_session && (
+                          <div style={{ display: "flex", gap: 16, fontSize: 12, marginBottom: course.status === "active" ? 12 : 0 }}>
+                            <span style={{ color: "var(--muted)" }}>
+                              Total: <strong style={{ color: "var(--text)" }}>PKR {course.total_price?.toLocaleString()}</strong>
+                            </span>
+                            <span style={{ color: "var(--muted)" }}>
+                              Billed: <strong style={{ color: course.billed_so_far > 0 ? "var(--accent)" : "var(--muted)" }}>
+                                PKR {course.billed_so_far?.toLocaleString() || 0}
+                              </strong>
+                            </span>
+                            {course.status === "active" && (
+                              <span style={{ color: "var(--muted)" }}>
+                                Remaining: <strong>PKR {(course.total_price - course.billed_so_far)?.toLocaleString()}</strong>
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         {course.status === "active" && (
                           <div className="action-row" style={{ margin: 0 }}>

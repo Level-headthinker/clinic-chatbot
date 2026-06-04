@@ -22,6 +22,7 @@ import WaitingRoom from "./pages/WaitingRoom";
 import Services from "./pages/Services";
 import DoctorPortal from "./pages/DoctorPortal";
 import Landing from "./pages/Landing";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./context/ToastContext";
 import { SkeletonBlock } from "./components/Skeleton";
@@ -136,6 +137,7 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Landing />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
               <Route path="/register" element={<Register />} />
               <Route path="/login" element={<Login />} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

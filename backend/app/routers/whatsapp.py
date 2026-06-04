@@ -117,9 +117,10 @@ def _get_doctors_info(doctors) -> str:
 
 def _send_whatsapp_reply(to: str, body: str):
     if not settings.META_PHONE_NUMBER_ID or not settings.META_ACCESS_TOKEN:
+        print("⚠️  WhatsApp reply skipped: META credentials not set")
         return
     try:
-        httpx.post(
+        resp = httpx.post(
             f"{META_API_BASE}/{settings.META_PHONE_NUMBER_ID}/messages",
             headers={"Authorization": f"Bearer {settings.META_ACCESS_TOKEN}"},
             json={
@@ -130,8 +131,12 @@ def _send_whatsapp_reply(to: str, body: str):
             },
             timeout=10,
         )
-    except Exception:
-        pass
+        if resp.status_code != 200:
+            print(f"⚠️  WhatsApp reply failed: {resp.status_code} — {resp.text}")
+        else:
+            print(f"✅ WhatsApp reply sent to {to}")
+    except Exception as e:
+        print(f"⚠️  WhatsApp reply exception: {e}")
 
 
 def _verify_signature(request_body: bytes, sig_header: str) -> bool:
@@ -193,10 +198,13 @@ async def receive_webhook(request: Request):
 
 def _handle_message(wa_from: str, text: str, phone_number_id: str):
     """Process one incoming WhatsApp message and send a reply."""
+    print(f"📩 WhatsApp message from {wa_from}: {text[:50]}")
     branch, tenant, doctors = _load_context_for_phone(phone_number_id)
     if not branch or not tenant:
+        print(f"⚠️  No clinic found for phone_number_id={phone_number_id}")
         _send_whatsapp_reply(wa_from, "Sorry, we could not find your clinic. Please contact us directly.")
         return
+    print(f"✅ Clinic found: {tenant.name}")
 
     db = SessionLocal()
     try:

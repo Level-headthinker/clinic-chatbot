@@ -72,10 +72,55 @@ def _send_reminders():
         db.close()
 
 
+def _reset_message_counters():
+    """Safety net for the monthly WhatsApp limit reset. The webhook also
+    self-resets on first message of a new month; this catches idle numbers."""
+    from datetime import timezone
+    from app.models.whatsapp_number import WhatsAppNumberMapping
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        next_month = (now.replace(day=1) + timedelta(days=32)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        mappings = db.query(WhatsAppNumberMapping).filter(
+            (WhatsAppNumberMapping.limit_reset_date.is_(None))
+            | (WhatsAppNumberMapping.limit_reset_date <= now)
+        ).all()
+        for m in mappings:
+            m.messages_used_this_month = 0
+            m.limit_reset_date = next_month
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _weekly_reports():
+    from app.services.reports import generate_scheduled_reports
+    generate_scheduled_reports("weekly")
+
+
+def _monthly_reports():
+    from app.services.reports import generate_scheduled_reports
+    generate_scheduled_reports("monthly")
+
+
 def start_scheduler():
     """Call this once on app startup."""
     if not _scheduler.running:
         _scheduler.add_job(_send_reminders, "interval", minutes=30, id="reminder_job")
+        # Monthly WhatsApp message-limit reset — 00:10 on the 1st (PKT).
+        _scheduler.add_job(_reset_message_counters, "cron",
+                           day=1, hour=0, minute=10, id="message_limit_reset")
+        # Auto-generated clinic reports: weekly every Monday 08:00, monthly on
+        # the 1st 08:00 (PKT). Exports are pre-rendered and cached for download.
+        _scheduler.add_job(_weekly_reports, "cron",
+                           day_of_week="mon", hour=8, minute=0, id="weekly_reports")
+        _scheduler.add_job(_monthly_reports, "cron",
+                           day=1, hour=8, minute=0, id="monthly_reports")
         _scheduler.start()
 
 

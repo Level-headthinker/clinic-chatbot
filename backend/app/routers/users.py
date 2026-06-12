@@ -99,6 +99,24 @@ def _resolve_branch(branch_id: Optional[str], tenant_id, db: Session) -> Optiona
     return branch
 
 
+def _require_manage_scope(current_user: User, target: User) -> None:
+    """Branch-scoped admins may only manage users inside their own branch.
+    Without this, a branch admin could reset the clinic owner's password or
+    promote themselves to tenant-level admin (privilege escalation)."""
+    if current_user.branch_id is not None and target.branch_id != current_user.branch_id:
+        raise HTTPException(
+            status_code=403, detail="Cannot manage users outside your branch"
+        )
+
+
+def _require_role_grant_allowed(current_user: User, role: Optional[str]) -> None:
+    """Only tenant-level admins may grant the 'admin' role."""
+    if role == "admin" and current_user.branch_id is not None:
+        raise HTTPException(
+            status_code=403, detail="Only clinic-level admins can grant the admin role"
+        )
+
+
 def _get_user_or_404(user_id: str, tenant_id, db: Session) -> User:
     user = db.query(User).filter(
         User.id == user_id,
@@ -150,6 +168,7 @@ def create_user(
     db: Session = Depends(get_db),
 ):
     """Create a new staff account within the current tenant."""
+    _require_role_grant_allowed(current_user, data.role)
     branch = _resolve_branch(data.branch_id, current_user.tenant_id, db)
 
     # Branch-scoped admins can only create users for their own branch
@@ -196,6 +215,8 @@ def update_user(
 ):
     """Update name, role, or branch assignment. Pass branch_id=null to grant tenant-level access."""
     user = _get_user_or_404(user_id, current_user.tenant_id, db)
+    _require_manage_scope(current_user, user)
+    _require_role_grant_allowed(current_user, data.role)
 
     if str(user.id) == str(current_user.id):
         raise HTTPException(status_code=400, detail="Cannot modify your own account via this endpoint")
@@ -208,6 +229,11 @@ def update_user(
 
     branch = None
     if "branch_id" in data.model_fields_set:
+        # Branch admins cannot re-home users (incl. branch_id=null → tenant level).
+        if current_user.branch_id is not None and (
+            data.branch_id is None or str(current_user.branch_id) != data.branch_id
+        ):
+            raise HTTPException(status_code=403, detail="Cannot move users outside your branch")
         branch = _resolve_branch(data.branch_id, current_user.tenant_id, db)
         user.branch_id = branch.id if branch else None
     elif user.branch_id:
@@ -226,6 +252,7 @@ def toggle_user(
 ):
     """Activate or deactivate a staff account."""
     user = _get_user_or_404(user_id, current_user.tenant_id, db)
+    _require_manage_scope(current_user, user)
 
     if str(user.id) == str(current_user.id):
         raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
@@ -246,6 +273,7 @@ def reset_password(
 ):
     """Admin resets another user's password."""
     user = _get_user_or_404(user_id, current_user.tenant_id, db)
+    _require_manage_scope(current_user, user)
 
     if str(user.id) == str(current_user.id):
         raise HTTPException(status_code=400, detail="Use a dedicated profile endpoint to change your own password")

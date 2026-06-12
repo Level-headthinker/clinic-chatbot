@@ -10,8 +10,10 @@ from app.models.doctor import Doctor
 from app.models.appointment import Appointment
 from app.models.chat import Lead, ChatSession
 from app.models.flagged_log import FlaggedLog
-from app.services.auth import get_current_user
+from app.models.whatsapp_number import WhatsAppNumberMapping
+from app.services.auth import get_current_user, require_admin_user
 from app.services.conversation_logger import flag_type_label
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/super", tags=["Super Admin"])
 
@@ -235,6 +237,144 @@ def update_plan(
 
 
 # ════════════════════════════════════════════════════════════
+# WHATSAPP NUMBER MAPPINGS — phone_number_id → clinic routing
+# ════════════════════════════════════════════════════════════
+
+class NumberMappingIn(BaseModel):
+    tenant_id: str
+    branch_id: Optional[str] = None
+    phone_number_id: str = Field(min_length=1, max_length=64)
+    whatsapp_number: str = Field(default="", max_length=32)
+    message_limit_monthly: int = Field(default=1000, ge=0)
+
+
+@router.get("/whatsapp/numbers")
+def list_number_mappings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    """All registered WhatsApp numbers, who owns them, and monthly usage."""
+    mappings = db.query(WhatsAppNumberMapping).order_by(
+        WhatsAppNumberMapping.created_at.desc()
+    ).all()
+    tenant_names = {
+        str(t.id): t.name
+        for t in db.query(Tenant).filter(
+            Tenant.id.in_([m.tenant_id for m in mappings])
+        ).all()
+    } if mappings else {}
+    return [
+        {
+            "id": str(m.id),
+            "tenant_id": str(m.tenant_id),
+            "clinic_name": tenant_names.get(str(m.tenant_id), "Unknown"),
+            "branch_id": str(m.branch_id) if m.branch_id else None,
+            "phone_number_id": m.phone_number_id,
+            "whatsapp_number": m.whatsapp_number,
+            "is_active": m.is_active,
+            "limit": m.message_limit_monthly,
+            "used": m.messages_used_this_month,
+            "resets_at": str(m.limit_reset_date) if m.limit_reset_date else None,
+        }
+        for m in mappings
+    ]
+
+
+@router.post("/whatsapp/numbers")
+def register_number_mapping(
+    data: NumberMappingIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    """Register a clinic's WhatsApp number (Meta phone_number_id → clinic)."""
+    tenant = db.query(Tenant).filter(Tenant.id == data.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    if data.branch_id:
+        branch = db.query(Branch).filter(
+            Branch.id == data.branch_id, Branch.tenant_id == tenant.id
+        ).first()
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found in that clinic")
+    existing = db.query(WhatsAppNumberMapping).filter(
+        WhatsAppNumberMapping.phone_number_id == data.phone_number_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="phone_number_id already registered")
+    mapping = WhatsAppNumberMapping(
+        tenant_id=data.tenant_id,
+        branch_id=data.branch_id,
+        phone_number_id=data.phone_number_id,
+        whatsapp_number=data.whatsapp_number,
+        message_limit_monthly=data.message_limit_monthly,
+    )
+    db.add(mapping)
+    db.commit()
+    return {"id": str(mapping.id), "message": "Number registered"}
+
+
+@router.put("/whatsapp/numbers/{mapping_id}/limit")
+def set_message_limit(
+    mapping_id: str,
+    limit: int = Query(ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    mapping = db.query(WhatsAppNumberMapping).filter(
+        WhatsAppNumberMapping.id == mapping_id
+    ).first()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    mapping.message_limit_monthly = limit
+    db.commit()
+    return {"message": "Limit updated", "limit": limit}
+
+
+@router.put("/whatsapp/numbers/{mapping_id}/toggle")
+def toggle_number_mapping(
+    mapping_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    mapping = db.query(WhatsAppNumberMapping).filter(
+        WhatsAppNumberMapping.id == mapping_id
+    ).first()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    mapping.is_active = not mapping.is_active
+    db.commit()
+    return {"is_active": mapping.is_active}
+
+
+@router.get("/clinics/{tenant_id}/message-stats")
+def clinic_message_stats(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    """Per-clinic WhatsApp usage vs limit (all their numbers)."""
+    mappings = db.query(WhatsAppNumberMapping).filter(
+        WhatsAppNumberMapping.tenant_id == tenant_id
+    ).all()
+    return {
+        "tenant_id": tenant_id,
+        "numbers": [
+            {
+                "phone_number_id": m.phone_number_id,
+                "whatsapp_number": m.whatsapp_number,
+                "is_active": m.is_active,
+                "limit": m.message_limit_monthly,
+                "used": m.messages_used_this_month,
+                "remaining": max(0, m.message_limit_monthly - m.messages_used_this_month),
+            }
+            for m in mappings
+        ],
+        "total_used": sum(m.messages_used_this_month for m in mappings),
+        "total_limit": sum(m.message_limit_monthly for m in mappings),
+    }
+
+
+# ════════════════════════════════════════════════════════════
 # PHASE 4 — SECURITY FLAG ENDPOINTS (superadmin: all clinics)
 # ════════════════════════════════════════════════════════════
 
@@ -391,7 +531,7 @@ def my_clinic_flags(
     limit: int = Query(50, le=100),
     offset: int = Query(0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)   # any admin, not just superadmin
+    current_user: User = Depends(require_admin_user)   # clinic admins, not plain staff
 ):
     """
     Clinic admins can see flags for their own clinic only.
@@ -417,7 +557,7 @@ def my_clinic_flags(
 @router.get("/my-clinic/security/stats")
 def my_clinic_security_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_user)
 ):
     """Security summary for the logged-in clinic's admin dashboard."""
     by_type = db.query(

@@ -3,11 +3,14 @@
 Patients visit /book/<branch-slug> on the frontend, fill a form,
 and an appointment request is created directly in the database.
 """
+import re
+import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,6 +21,23 @@ from app.models.doctor import Doctor
 from app.models.tenant import Tenant
 
 router = APIRouter(prefix="/public", tags=["Public Booking"])
+
+# ── Public-endpoint rate limiter (per IP) ─────────────────────────────────────
+# In-memory: per-process, resets on restart. Upgrade path: Redis (see AUDIT_REPORT).
+_booking_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def _booking_rate_limit(request: Request, max_attempts: int = 10, window: int = 3600):
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    attempts = [t for t in _booking_attempts[ip] if t > now - window]
+    _booking_attempts[ip] = attempts
+    if len(attempts) >= max_attempts:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many booking attempts. Please try again later or call the clinic.",
+        )
+    _booking_attempts[ip].append(now)
 
 BOOKED_STATUSES = ["pending", "confirmed"]
 WEEKDAY_BY_NAME = {
@@ -112,17 +132,62 @@ def get_clinic_info(slug: str, db: Session = Depends(get_db)):
     }
 
 
+def _slot_is_offered(doctor, slot: datetime, db, tenant_id) -> bool:
+    """A public booking may only claim a slot the doctor actually offers:
+    future, on a working day, inside working hours, on the 30-minute grid,
+    and not already taken. Without this check anyone could write arbitrary
+    datetimes (3 AM, past dates, double-books) straight into the clinic's diary."""
+    now = datetime.now()
+    if slot <= now:
+        return False
+    if slot > now + timedelta(days=60):
+        return False
+    booked = db.query(Appointment).filter(
+        Appointment.tenant_id == tenant_id,
+        Appointment.doctor_id == doctor.id,
+        Appointment.slot_datetime == slot,
+        Appointment.status.in_(BOOKED_STATUSES),
+    ).first()
+    if booked:
+        return False
+    for timing in doctor.timings or []:
+        weekday = WEEKDAY_BY_NAME.get(str(timing.get("day", "")).strip().lower())
+        start = _parse_time(timing.get("from"))
+        end = _parse_time(timing.get("to"))
+        if weekday is None or not start or not end:
+            continue
+        if slot.weekday() != weekday:
+            continue
+        day_start = datetime.combine(slot.date(), start)
+        day_end = datetime.combine(slot.date(), end)
+        if day_start <= slot < day_end and \
+                int((slot - day_start).total_seconds()) % 1800 == 0:
+            return True
+    return False
+
+
+_PHONE_OK = re.compile(r"^\+?[0-9][0-9\-\s]{6,18}$")
+
+
 class BookingRequest(BaseModel):
-    patient_name: str
-    patient_phone: str
-    patient_concern: Optional[str] = ""
+    patient_name: str = Field(min_length=2, max_length=255)
+    patient_phone: str = Field(min_length=7, max_length=20)
+    patient_concern: Optional[str] = Field(default="", max_length=500)
     doctor_id: str
     slot_datetime: str  # ISO format: "2026-05-25T10:00:00"
 
 
 @router.post("/clinic/{slug}/book")
-def create_booking(slug: str, data: BookingRequest, db: Session = Depends(get_db)):
+def create_booking(
+    slug: str,
+    data: BookingRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Public: patient submits a booking request."""
+    _booking_rate_limit(request)
+    if not _PHONE_OK.match(data.patient_phone.strip()):
+        raise HTTPException(status_code=400, detail="Please enter a valid phone number.")
     branch = db.query(Branch).filter(
         Branch.slug == slug, Branch.is_active.is_(True)
     ).first()
@@ -156,6 +221,14 @@ def create_booking(slug: str, data: BookingRequest, db: Session = Depends(get_db
         slot = datetime.fromisoformat(data.slot_datetime)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid slot datetime format.")
+    if slot.tzinfo is not None:
+        slot = slot.replace(tzinfo=None)
+
+    if not _slot_is_offered(doctor, slot, db, tenant.id):
+        raise HTTPException(
+            status_code=409,
+            detail="That slot is not available. Please pick one of the offered slots.",
+        )
 
     appointment = Appointment(
         tenant_id=tenant.id,

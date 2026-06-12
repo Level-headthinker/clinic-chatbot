@@ -21,12 +21,13 @@ Setup (one-time)
 
 No Twilio account needed. Free tier: 10 min/month.
 """
+import hmac
 import json
 import time
 import uuid
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -35,6 +36,20 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models.branch import Branch
 from app.models.doctor import Doctor
+from app.models.user import User
+from app.services.auth import get_current_user, require_admin_user
+
+
+def require_vapi_secret(x_vapi_secret: str | None = Header(default=None)):
+    """Gate for the endpoints VAPI itself calls. CLOSED by default: if
+    VAPI_SERVER_SECRET is unset these endpoints refuse to serve — otherwise
+    /vapi-llm is an unauthenticated proxy to our Groq key for anyone."""
+    if not settings.VAPI_SERVER_SECRET:
+        raise HTTPException(status_code=503, detail="voice agent not configured")
+    if not x_vapi_secret or not hmac.compare_digest(
+        x_vapi_secret, settings.VAPI_SERVER_SECRET
+    ):
+        raise HTTPException(status_code=401, detail="invalid server secret")
 
 try:
     from groq import AsyncGroq
@@ -116,7 +131,7 @@ def _assistant_config(base_url: str, branch, doctors: list) -> dict:
 
 # ── VAPI serverUrl endpoint ────────────────────────────────────────────────────
 
-@router.post("/vapi-server")
+@router.post("/vapi-server", dependencies=[Depends(require_vapi_secret)])
 async def vapi_server_url(request: Request):
     """VAPI calls this on each new inbound call to get the assistant config."""
     body = await request.json()
@@ -132,7 +147,7 @@ async def vapi_server_url(request: Request):
 
 # ── Custom LLM endpoint (VAPI → Groq) ─────────────────────────────────────────
 
-@router.post("/vapi-llm")
+@router.post("/vapi-llm", dependencies=[Depends(require_vapi_secret)])
 async def vapi_llm(request: Request):
     """VAPI sends OpenAI-compatible chat requests here; we forward to Groq.
 
@@ -220,8 +235,13 @@ class OutboundCallIn(BaseModel):
 
 
 @router.post("/outbound")
-async def make_outbound_call(data: OutboundCallIn, request: Request):
-    """Trigger an outbound AI call to a patient via VAPI."""
+async def make_outbound_call(
+    data: OutboundCallIn,
+    request: Request,
+    current_user: User = Depends(require_admin_user),
+):
+    """Trigger an outbound AI call to a patient via VAPI. Staff-initiated only —
+    unauthenticated access would let anyone place calls on the clinic's bill."""
     if not settings.VAPI_API_KEY or not settings.VAPI_PHONE_NUMBER_ID:
         return JSONResponse(
             status_code=503,
@@ -267,8 +287,12 @@ async def make_outbound_call(data: OutboundCallIn, request: Request):
 # ── Call history ───────────────────────────────────────────────────────────────
 
 @router.get("/calls")
-async def list_calls(limit: int = 25):
-    """Fetch recent call records from VAPI."""
+async def list_calls(
+    limit: int = 25,
+    current_user: User = Depends(require_admin_user),
+):
+    """Fetch recent call records from VAPI. Admin-only — call records contain
+    patient phone numbers."""
     if not settings.VAPI_API_KEY:
         return {"calls": [], "configured": False}
 
@@ -289,7 +313,7 @@ async def list_calls(limit: int = 25):
 
 
 @router.get("/status")
-def voice_status():
+def voice_status(current_user: User = Depends(get_current_user)):
     """Return VAPI configuration status for the frontend."""
     return {
         "configured": bool(settings.VAPI_API_KEY and settings.VAPI_PHONE_NUMBER_ID),

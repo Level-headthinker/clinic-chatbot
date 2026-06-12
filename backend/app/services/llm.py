@@ -229,15 +229,17 @@ _ROMAN_URDU_WEAK = {
 }
 
 
-def detect_language(message: str) -> str:
+def detect_language(message: str, fallback: str = "en") -> str:
     # Urdu script takes priority
     if any(ch in _URDU_CHARS for ch in message):
         return "ur"
 
     cleaned = message.strip()
-    # Pure digits or punctuation-only → keep previous language (default English)
+    # Pure digits or punctuation-only → keep the previous language. Without the
+    # fallback, an Urdu speaker sending just their phone number flipped the
+    # whole conversation to English mid-booking.
     if not any(c.isalpha() for c in cleaned):
-        return "en"
+        return fallback if fallback in ("en", "ur", "ur-roman") else "en"
 
     words = set(cleaned.lower().split())
 
@@ -403,10 +405,13 @@ def get_ai_response(
     patient_name: str = "Not collected yet",
     patient_phone: str = "Not collected yet",
     is_returning: bool = False,
-    visit_count: int = 0
+    visit_count: int = 0,
+    language: str | None = None,
 ) -> str:
 
-    language = detect_language(user_message)
+    # Caller (handle_turn) passes the session-aware language so a digit-only
+    # message doesn't flip the language lock mid-conversation.
+    language = language or detect_language(user_message)
 
     # Hard emergency check BEFORE hitting the LLM
     if is_emergency(user_message):

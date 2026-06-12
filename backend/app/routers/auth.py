@@ -133,8 +133,10 @@ def register(
     if existing:
         raise HTTPException(status_code=400, detail="Clinic slug already taken")
 
+    from sqlalchemy import func as sa_func
+    admin_email = data.admin_email.strip().lower()
     existing_user = db.query(User).filter(
-        User.email == data.admin_email
+        sa_func.lower(User.email) == admin_email
     ).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -158,7 +160,7 @@ def register(
 
     user = User(
         tenant_id=tenant.id,
-        email=data.admin_email,
+        email=admin_email,
         hashed_password=hash_password(data.admin_password),
         full_name=data.admin_full_name,
         role="admin",
@@ -187,9 +189,16 @@ def login(
         max_attempts=10,
         window_seconds=300,
     )
-    user = db.query(User).filter(User.email == form_data.username).first()
+    from sqlalchemy import func as sa_func
+    user = db.query(User).filter(
+        sa_func.lower(User.email) == form_data.username.strip().lower()
+    ).first()
 
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    # Always run one bcrypt verification so a missing account takes the same
+    # time as a wrong password (no user-enumeration timing oracle).
+    _DUMMY_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEeO7ZBlS3nq3yU0EHCS7iLTC0bWQH3pW7e"
+    hashed = user.hashed_password if user else _DUMMY_HASH
+    if not verify_password(form_data.password, hashed) or not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"

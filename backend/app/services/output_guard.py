@@ -250,7 +250,9 @@ def check_length(response: str) -> Optional[GuardedOutput]:
     if len(response) <= OutputGuardConfig.MAX_RESPONSE_LENGTH:
         return None
 
-    # Try to cut at last sentence boundary before the limit
+    # Cut at the last sentence boundary before the limit so the final text
+    # NEVER exceeds MAX_RESPONSE_LENGTH (the old code appended a 99-char
+    # bilingual suffix after cutting at the limit, overshooting the cap).
     cutoff = response[:OutputGuardConfig.MAX_RESPONSE_LENGTH]
     last_period = max(
         cutoff.rfind("."),
@@ -261,10 +263,11 @@ def check_length(response: str) -> Optional[GuardedOutput]:
     if last_period > OutputGuardConfig.MAX_RESPONSE_LENGTH // 2:
         truncated = cutoff[:last_period + 1]
     else:
-        truncated = cutoff.rstrip()
+        # No usable sentence boundary — hard cut with an ellipsis, still capped.
+        truncated = cutoff[: OutputGuardConfig.MAX_RESPONSE_LENGTH - 3].rstrip() + "..."
 
     return GuardedOutput(
-        final_response=truncated + OutputGuardConfig.TRUNCATION_SUFFIX,
+        final_response=truncated,
         was_modified=True,
         modification_reason=f"Response truncated from {len(response)} to {len(truncated)} chars",
         flag="too_long",

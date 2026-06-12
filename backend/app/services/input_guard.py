@@ -176,10 +176,20 @@ def check_rate_limit(session_token: str, message: str) -> Optional[GuardResult]:
 # Each pattern has a comment explaining what attack it catches.
 
 INJECTION_PATTERNS = [
+    # ── Known jailbreak names/techniques ──
+    # Checked FIRST: "You are now DAN" must classify as the more specific
+    # "jailbreak", not the generic role_override that would also match it.
+    (r"\bDAN\b", "jailbreak"),                             # Do Anything Now
+    (r"jailbreak", "jailbreak"),
+    (r"developer\s+mode", "jailbreak"),
+    (r"unrestricted\s+mode", "jailbreak"),
+    (r"no\s+restrictions", "jailbreak"),
+    (r"without\s+(any\s+)?limitations", "jailbreak"),
+
     # ── Role override attempts ──
     (r"ignore\s+(your\s+)?(previous\s+|all\s+)?instructions", "role_override"),
     (r"forget\s+(your\s+)?(previous\s+|all\s+)?instructions", "role_override"),
-    (r"you\s+are\s+now\s+\w+", "role_override"),          # "you are now DAN"
+    (r"you\s+are\s+now\s+\w+", "role_override"),          # "you are now a pirate"
     (r"act\s+as\s+(if\s+you\s+are|a\s+)", "role_override"),
     (r"pretend\s+(you\s+are|to\s+be)", "role_override"),
     (r"your\s+new\s+(role|instructions|task|job)\s+is", "role_override"),
@@ -190,14 +200,6 @@ INJECTION_PATTERNS = [
     (r"(show|reveal|print|output|tell me|what is)\s+(me\s+)?(your\s+)?(system\s+prompt|instructions)", "prompt_extraction"),
     (r"repeat\s+(your\s+)?(system|initial|original)\s+(prompt|instructions)", "prompt_extraction"),
     (r"what\s+(were\s+)?you\s+(told|instructed|programmed)", "prompt_extraction"),
-
-    # ── Known jailbreak names/techniques ──
-    (r"\bDAN\b", "jailbreak"),                             # Do Anything Now
-    (r"jailbreak", "jailbreak"),
-    (r"developer\s+mode", "jailbreak"),
-    (r"unrestricted\s+mode", "jailbreak"),
-    (r"no\s+restrictions", "jailbreak"),
-    (r"without\s+(any\s+)?limitations", "jailbreak"),
 
     # ── Data extraction attempts ──
     (r"(list|show|give me|tell me)\s+(me\s+)?(all\s+)?(patients|users|appointments|records|database)", "data_extraction"),

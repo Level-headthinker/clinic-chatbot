@@ -8,7 +8,7 @@ from app.database import engine, Base
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -149,6 +149,46 @@ def _add_missing_columns():
                 THEN ALTER TABLE treatment_sessions RENAME COLUMN price_per_course TO price_per_session;
                 END IF;
             END $$""", "rename price_per_course column")
+        _run_sql(conn, """
+            CREATE TABLE IF NOT EXISTS whatsapp_number_mappings (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id),
+                branch_id UUID REFERENCES branches(id),
+                phone_number_id VARCHAR(64) NOT NULL UNIQUE,
+                whatsapp_number VARCHAR(32),
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                message_limit_monthly INTEGER NOT NULL DEFAULT 1000,
+                messages_used_this_month INTEGER NOT NULL DEFAULT 0,
+                limit_reset_date TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )""", "create whatsapp_number_mappings")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_wanm_tenant ON whatsapp_number_mappings (tenant_id)",
+            "index whatsapp_number_mappings.tenant_id")
+        _run_sql(conn, """
+            CREATE TABLE IF NOT EXISTS system_reports (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                clinic_id UUID REFERENCES tenants(id),
+                report_type VARCHAR(20) NOT NULL,
+                period_start TIMESTAMPTZ NOT NULL,
+                period_end TIMESTAMPTZ NOT NULL,
+                generated_at TIMESTAMPTZ DEFAULT now(),
+                metrics JSONB DEFAULT '{}',
+                xlsx_path VARCHAR(500),
+                pdf_path VARCHAR(500)
+            )""", "create system_reports")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_system_reports_clinic ON system_reports (clinic_id)",
+            "index system_reports.clinic_id")
+        _run_sql(conn, """
+            CREATE TABLE IF NOT EXISTS import_mappings (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id),
+                entity VARCHAR(30) NOT NULL,
+                mapping JSONB DEFAULT '{}',
+                updated_at TIMESTAMPTZ DEFAULT now(),
+                CONSTRAINT uq_import_mapping_tenant_entity UNIQUE (tenant_id, entity)
+            )""", "create import_mappings")
         print("✅ Migrations complete")
 
 
@@ -228,6 +268,9 @@ app.include_router(doctor_portal.router)
 app.include_router(services.router)
 app.include_router(rooms.router)
 app.include_router(treatment_sessions.router)
+app.include_router(reports.router)
+app.include_router(reports.super_router)
+app.include_router(import_data.router)
 
 
 @app.get("/")

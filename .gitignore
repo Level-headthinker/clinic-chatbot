@@ -48,3 +48,6 @@ render.yaml
 # Logs
 *.log
 logs/
+
+# Generated report exports (cached for re-download)
+reports_store/

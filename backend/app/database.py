@@ -6,7 +6,13 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
 
-engine = create_engine(settings.DATABASE_URL) # connect python to pgadmin through url
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,    # probe connections before use — survives DB restarts/idle drops
+    pool_recycle=1800,     # refresh connections older than 30 min (hosted PG idle timeouts)
+    pool_size=5,
+    max_overflow=10,
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)# create session every api request get its own session
 

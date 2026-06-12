@@ -25,11 +25,25 @@ class Settings(BaseSettings):
     META_PHONE_NUMBER_ID: str = ""       # From Meta App Dashboard
     META_ACCESS_TOKEN: str = ""          # Permanent system user token
     META_VERIFY_TOKEN: str = "clinicbot_verify"  # Any secret string for webhook verification
+    # App Secret (Meta → App → Settings → Basic). When set, every incoming
+    # webhook POST is HMAC-verified (X-Hub-Signature-256). REQUIRED in production.
+    META_APP_SECRET: str = ""
+
+    # Shared secret VAPI must send (X-Vapi-Secret header) to reach the
+    # /voice/vapi-server and /voice/vapi-llm endpoints. Blank = endpoints closed.
+    VAPI_SERVER_SECRET: str = ""
 
     # VAPI.ai — Voice Agent (free 10 min/month, then pay-per-minute)
     VAPI_API_KEY: str = ""               # From vapi.ai dashboard
     VAPI_PHONE_NUMBER_ID: str = ""       # VAPI phone number ID (not the number itself)
     VOICE_BRANCH_SLUG: str = ""          # Branch slug the voice agent answers for
+
+    # VIS — Voice Intelligence Service (self-hosted STT/TTS; replaces VAPI cost)
+    VIS_API_URL: str = ""                # e.g. http://localhost:8080 or your deployed VIS
+    VIS_API_KEY: str = ""                # must match VIS's API_KEY (blank if VIS is open)
+    # Which languages reply to a WhatsApp voice note with a VOICE note (others reply text).
+    # Default "en"; once VIS has ElevenLabs configured for Urdu use "en,ur,ur-roman".
+    WHATSAPP_VOICE_LANGS: str = "en"
 
     @property
     def cors_origins(self) -> list[str]:
@@ -38,6 +52,10 @@ class Settings(BaseSettings):
             for origin in self.CORS_ORIGINS.split(",")
             if origin.strip()
         ]
+
+    @property
+    def whatsapp_voice_langs(self) -> set[str]:
+        return {x.strip() for x in self.WHATSAPP_VOICE_LANGS.split(",") if x.strip()}
 
 
 settings = Settings()

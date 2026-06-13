@@ -50,6 +50,13 @@ _CONFIRMATION_RE = re.compile(
     r"|theek hai|ho jaye|kar do|yes please|g kar do|haan kar do)\b",
     re.IGNORECASE,
 )
+# A confirmation word inside a NEGATED sentence is not a confirmation —
+# "not just confirm and tell me…" must NOT auto-book. Catches English +
+# Roman Urdu negations.
+_NEGATION_RE = re.compile(
+    r"\b(not|don'?t|never|no|cannot|can'?t|without|nahi|nai|mat)\b",
+    re.IGNORECASE,
+)
 WEEKDAY_BY_NAME = {
     "monday": 0, "tuesday": 1, "wednesday": 2,
     "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
@@ -187,7 +194,10 @@ def format_slot(slot):
 
 
 def is_confirmation_message(message):
-    return bool(_CONFIRMATION_RE.search(message or ""))
+    msg = message or ""
+    if _NEGATION_RE.search(msg):
+        return False
+    return bool(_CONFIRMATION_RE.search(msg))
 
 
 def booking_suggestion_reply(options, language):

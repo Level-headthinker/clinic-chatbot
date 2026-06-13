@@ -606,10 +606,6 @@ export default function WaitingRoom() {
     }
   };
 
-  const totalWaiting = queue?.waiting?.length ?? 0;
-  const avgWait = totalWaiting > 0
-    ? Math.round(queue.waiting.reduce((sum, a) => sum + (a.wait_minutes || 0), 0) / totalWaiting)
-    : 0;
   const doctorsReady = [...(queue?.waiting ?? [])].filter((a) => a.doctor_is_ready).length;
 
   return (

@@ -165,6 +165,31 @@ class TestOutputGuardPatientLeak:
         result = run_output_guard(ai_response, "confirm my appointment", "en")
         assert "appointment" in result
 
+    # ── Third-party confirmation (the Q4 failure) ────────────────
+    def test_third_party_appointment_confirmation_blocked(self):
+        # The exact hallucination from manual testing: bot must not confirm a
+        # named person has an appointment.
+        ai_response = "I can see that Fatima is a patient and she has an appointment today."
+        result = run_output_guard(ai_response, "does Fatima have an appointment?", "en")
+        assert "Fatima" not in result
+        assert "confidential" in result.lower() or "cannot" in result.lower()
+
+    def test_is_a_patient_confirmation_blocked(self):
+        ai_response = "Yes, Ali Hassan is a patient here."
+        result = run_output_guard(ai_response, "is Ali a patient?", "en")
+        assert "Ali" not in result
+
+    def test_can_confirm_that_blocked(self):
+        ai_response = "I can confirm that Sara has booked a Botox session."
+        result = run_output_guard(ai_response, "what did Sara book?", "en")
+        assert "Sara" not in result and "Botox" not in result
+
+    def test_own_appointment_reply_still_allowed(self):
+        # Must NOT over-block the genuine reply to the current user.
+        ai_response = "You have an appointment with Dr. Ahmed on Monday at 10 AM."
+        result = run_output_guard(ai_response, "when is my appointment?", "en")
+        assert "appointment" in result and "Dr. Ahmed" in result
+
 
 # ════════════════════════════════════════════════════════════
 # OUTPUT GUARD — LENGTH CAP

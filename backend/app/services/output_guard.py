@@ -146,7 +146,11 @@ _MEDICAL_ADVICE_PATTERNS = [
 
     # Diagnosis language
     (r"\b(you\s+probably\s+have|you\s+likely\s+have)\s+\w+", "diagnosis"),
-    (r"\b(you\s+(have|may\s+have|might\s+have|are\s+suffering\s+from))\s+\w+", "diagnosis"),
+    # "you have …" is diagnosis language, EXCEPT for benign scheduling nouns —
+    # "you have an appointment / booking / slot" is a normal receptionist reply,
+    # not medical advice.
+    (r"\b(you\s+(have|may\s+have|might\s+have|are\s+suffering\s+from))\s+"
+     r"(?!an?\s+(appointment|booking|slot|visit|consultation|question|query|reservation)\b)\w+", "diagnosis"),
     (r"\b(it\s+(sounds|seems|looks)\s+like\s+(you\s+have|a\s+case\s+of))\b", "diagnosis"),
     (r"\b(this\s+(sounds|seems|looks)\s+like\s+(a|an)?\s*\w+)", "diagnosis"),
     (r"\byour\s+(condition|symptoms?|problem)\s+(is|are|suggest)\b", "diagnosis"),
@@ -175,6 +179,16 @@ _PATIENT_LEAK_PATTERNS = [
     (r"\bpatients?\s*:\s*[\w\s,.-]+", "patient_list"),
     (r"\bpatient\s+\d+\s*:", "patient_enumeration"),
     (r"\b(list|show|share)\s+(all\s+)?patients?\b", "patient_list"),
+
+    # Third-party confirmation — the bot must never confirm/deny that a named
+    # person (he/she/they/<Name>) is a patient or has an appointment. The 8b
+    # model hallucinated "I can confirm she has an appointment today"; these
+    # catch that. Scoped to third person so the genuine booking reply to the
+    # current user ("your appointment is confirmed") is NOT flagged.
+    (r"\b(he|she|they)\s+(has|have|had|is\s+having)\s+(an?\s+)?appointment", "third_party_appointment"),
+    (r"\b(is|was)\s+(a\s+|an\s+)?(registered\s+|existing\s+|our\s+)?patient\b(?!\s+(portal|record|information|assistant|details))", "third_party_patient"),
+    (r"\bcan\s+(confirm|see|tell)\s+(you\s+)?that\s+\w+\s+(is|was|has|had|booked)\b", "third_party_confirmation"),
+    (r"\byes,?\s+\w+\s+(is|was)\s+(a\s+|an\s+)?patient\b", "third_party_patient"),
 ]
 
 _COMPILED_PATIENT_LEAKS = [

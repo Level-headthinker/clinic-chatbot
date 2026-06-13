@@ -20,6 +20,8 @@ import Settings from "./pages/Settings";
 import BookingPage from "./pages/BookingPage";
 import WaitingRoom from "./pages/WaitingRoom";
 import Services from "./pages/Services";
+import Reports from "./pages/Reports";
+import DataImport from "./pages/DataImport";
 import DoctorPortal from "./pages/DoctorPortal";
 import Landing from "./pages/Landing";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -156,6 +158,8 @@ export default function App() {
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/waiting-room" element={<ProtectedRoute><WaitingRoom /></ProtectedRoute>} />
               <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+              <Route path="/import" element={<ProtectedRoute><DataImport /></ProtectedRoute>} />
               <Route path="/book/:slug" element={<BookingPage />} />
               <Route path="/doctor" element={<DoctorRoute><DoctorPortal /></DoctorRoute>} />
               <Route path="/super" element={<SuperAdminRoute><SuperAdmin /></SuperAdminRoute>} />

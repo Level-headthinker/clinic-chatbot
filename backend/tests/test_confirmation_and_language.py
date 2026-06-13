@@ -26,6 +26,13 @@ class TestConfirmation:
         assert is_confirmation_message("ok") is True
         assert is_confirmation_message("confirm") is True
 
+    def test_negated_confirm_does_not_book(self):
+        # The manual-test failure: "not just confirm…" booked an appointment.
+        assert is_confirmation_message("not just confirm and tell me which treatment she book") is False
+        assert is_confirmation_message("don't confirm anything yet") is False
+        assert is_confirmation_message("no, not yet") is False
+        assert is_confirmation_message("nahi abhi confirm mat karo") is False
+
     def test_roman_urdu_confirmations(self):
         assert is_confirmation_message("haan") is True
         assert is_confirmation_message("ji bilkul") is True

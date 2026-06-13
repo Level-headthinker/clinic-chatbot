@@ -69,6 +69,17 @@ class RegisterRequest(BaseModel):
     admin_email: EmailStr
     admin_password: str
     admin_full_name: str
+    whatsapp_number: Optional[str] = None   # clinic's own WA number (display/onboarding)
+
+    @field_validator("whatsapp_number")
+    @classmethod
+    def whatsapp_format(cls, v):
+        if not v:
+            return v
+        cleaned = re.sub(r"[\s\-()]", "", v)
+        if not re.match(r"^\+?\d{10,15}$", cleaned):
+            raise ValueError("WhatsApp number must be 10–15 digits, optionally starting with +")
+        return cleaned
 
     @field_validator("admin_password")
     @classmethod
@@ -144,7 +155,8 @@ def register(
     tenant = Tenant(
         name=data.clinic_name,
         slug=data.clinic_slug,
-        bot_name=f"{data.clinic_name} Bot"
+        bot_name=f"{data.clinic_name} Bot",
+        whatsapp_number=data.whatsapp_number,
     )
     db.add(tenant)
     db.flush()

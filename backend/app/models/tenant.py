@@ -21,6 +21,10 @@ class Tenant(Base):
     bot_name = Column(String(100), default="ClinicBot")
     welcome_message = Column(Text, default="Hello! How can I help you today?")
     primary_color = Column(String(7), default="#2563eb")
+    # The clinic's own WhatsApp number (human-readable, e.g. +923001234567),
+    # captured at sign-up. Routing still uses the Meta phone_number_id on the
+    # whatsapp_number_mappings row — this is for display + the connect screen.
+    whatsapp_number = Column(String(32))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -314,6 +314,7 @@ def _process_message(msg: dict, phone_number_id: str):
                 wa_from,
                 "Our automated assistant has reached its monthly message limit. "
                 "Please call the clinic directly — we're happy to help.",
+                from_pnid=phone_number_id,
             )
         if mtype == "text":
             text = (msg.get("text", {}).get("body") or "").strip()
@@ -329,7 +330,7 @@ def _handle_text(wa_from: str, text: str, phone_number_id: str):
     branch, tenant, _doctors = _load_context_for_phone(phone_number_id)
     if not branch or not tenant:
         print(f"⚠️  No clinic found for phone_number_id={phone_number_id}")
-        _send_whatsapp_reply(wa_from, "Sorry, we could not find your clinic. Please contact us directly.")
+        _send_whatsapp_reply(wa_from, "Sorry, we could not find your clinic. Please contact us directly.", from_pnid=phone_number_id)
         return
 
     reply = "Sorry, something went wrong. Please try again or call the clinic directly."
@@ -339,7 +340,7 @@ def _handle_text(wa_from: str, text: str, phone_number_id: str):
         guard = run_input_guard(text, f"wa:{wa_from}")
         if not guard.allowed:
             db.rollback()
-            _send_whatsapp_reply(wa_from, guard.blocked_reason or "I cannot process that message.")
+            _send_whatsapp_reply(wa_from, guard.blocked_reason or "I cannot process that message.", from_pnid=phone_number_id)
             return
         if not session.patient_phone:
             session.patient_phone = _normalize_wa_phone(wa_from)
@@ -352,23 +353,23 @@ def _handle_text(wa_from: str, text: str, phone_number_id: str):
     finally:
         db.close()
 
-    _send_whatsapp_reply(wa_from, reply)
+    _send_whatsapp_reply(wa_from, reply, from_pnid=phone_number_id)
 
 
 def _handle_voice(wa_from: str, media_id: str, phone_number_id: str):
     branch, tenant, _doctors = _load_context_for_phone(phone_number_id)
     if not branch or not tenant:
-        _send_whatsapp_reply(wa_from, "Sorry, we could not find your clinic. Please contact us directly.")
+        _send_whatsapp_reply(wa_from, "Sorry, we could not find your clinic. Please contact us directly.", from_pnid=phone_number_id)
         return
 
     audio, mime = _download_media(media_id)
     if not audio:
-        _send_whatsapp_reply(wa_from, "Sorry, I couldn't read that voice note. Please try again.")
+        _send_whatsapp_reply(wa_from, "Sorry, I couldn't read that voice note. Please try again.", from_pnid=phone_number_id)
         return
 
     transcript, _stt_lang = _transcribe_via_vis(audio, mime)
     if not transcript:
-        _send_whatsapp_reply(wa_from, "I couldn't hear anything in that message. Could you resend it?")
+        _send_whatsapp_reply(wa_from, "I couldn't hear anything in that message. Could you resend it?", from_pnid=phone_number_id)
         return
 
     reply = "Sorry, something went wrong. Please try again or call the clinic directly."
@@ -379,7 +380,7 @@ def _handle_voice(wa_from: str, media_id: str, phone_number_id: str):
         guard = run_input_guard(transcript, f"wa:{wa_from}")
         if not guard.allowed:
             db.rollback()
-            _send_whatsapp_reply(wa_from, guard.blocked_reason or "I cannot process that message.")
+            _send_whatsapp_reply(wa_from, guard.blocked_reason or "I cannot process that message.", from_pnid=phone_number_id)
             return
         if not session.patient_phone:
             session.patient_phone = _normalize_wa_phone(wa_from)
@@ -393,23 +394,21 @@ def _handle_voice(wa_from: str, media_id: str, phone_number_id: str):
         db.close()
 
     # Reply as a voice note for configured languages; otherwise text.
-    # (Urdu sounds wrong on Deepgram's English voice — keep it text until VIS has
-    #  ElevenLabs configured, then add ur/ur-roman to WHATSAPP_VOICE_LANGS.)
-    if reply_language in settings.whatsapp_voice_langs and _reply_with_voice(wa_from, reply, reply_language):
+    if reply_language in settings.whatsapp_voice_langs and _reply_with_voice(wa_from, reply, reply_language, from_pnid=phone_number_id):
         return
-    _send_whatsapp_reply(wa_from, reply)
+    _send_whatsapp_reply(wa_from, reply, from_pnid=phone_number_id)
 
 
-def _reply_with_voice(wa_from: str, text: str, language: str) -> bool:
+def _reply_with_voice(wa_from: str, text: str, language: str, from_pnid: str | None = None) -> bool:
     """Synthesize via VIS and send as a WhatsApp voice note. Returns False on any failure."""
     if not text:
         return False
     try:
         audio, mime = _synthesize_via_vis(text, language)
         if audio:
-            media_id = _upload_media(audio, mime)
+            media_id = _upload_media(audio, mime, from_pnid=from_pnid)
             if media_id:
-                _send_whatsapp_audio(wa_from, media_id)
+                _send_whatsapp_audio(wa_from, media_id, from_pnid=from_pnid)
                 return True
     except Exception as e:  # noqa: BLE001
         print(f"⚠️  voice reply failed: {e}")
@@ -486,11 +485,12 @@ def _download_media(media_id: str) -> tuple[bytes, str]:
         return b"", ""
 
 
-def _upload_media(data: bytes, mime: str) -> str:
+def _upload_media(data: bytes, mime: str, from_pnid: str | None = None) -> str:
     ext = "ogg" if "ogg" in (mime or "") else "mp3"
+    sender = from_pnid or settings.META_PHONE_NUMBER_ID
     try:
         resp = httpx.post(
-            f"{META_API_BASE}/{settings.META_PHONE_NUMBER_ID}/media",
+            f"{META_API_BASE}/{sender}/media",
             headers=_meta_auth(),
             data={"messaging_product": "whatsapp", "type": mime},
             files={"file": (f"reply.{ext}", data, mime)},
@@ -505,12 +505,13 @@ def _upload_media(data: bytes, mime: str) -> str:
         return ""
 
 
-def _send_whatsapp_audio(to: str, media_id: str):
-    if not settings.META_PHONE_NUMBER_ID or not settings.META_ACCESS_TOKEN:
+def _send_whatsapp_audio(to: str, media_id: str, from_pnid: str | None = None):
+    sender = from_pnid or settings.META_PHONE_NUMBER_ID
+    if not sender or not settings.META_ACCESS_TOKEN:
         return
     try:
         resp = httpx.post(
-            f"{META_API_BASE}/{settings.META_PHONE_NUMBER_ID}/messages",
+            f"{META_API_BASE}/{sender}/messages",
             headers=_meta_auth(),
             json={"messaging_product": "whatsapp", "to": to, "type": "audio", "audio": {"id": media_id}},
             timeout=10,
@@ -546,15 +547,19 @@ def whatsapp_usage(
     ]
 
 
-def _send_whatsapp_reply(to: str, body: str):
+def _send_whatsapp_reply(to: str, body: str, from_pnid: str | None = None):
     if not body:
         return
-    if not settings.META_PHONE_NUMBER_ID or not settings.META_ACCESS_TOKEN:
+    # Reply FROM the number that received the message — WhatsApp's 24h service
+    # window is per-number, so sending from any other number would fail to
+    # deliver in-session. Falls back to the global number for legacy single-number.
+    sender = from_pnid or settings.META_PHONE_NUMBER_ID
+    if not sender or not settings.META_ACCESS_TOKEN:
         print("⚠️  WhatsApp reply skipped: META credentials not set")
         return
     try:
         resp = httpx.post(
-            f"{META_API_BASE}/{settings.META_PHONE_NUMBER_ID}/messages",
+            f"{META_API_BASE}/{sender}/messages",
             headers=_meta_auth(),
             json={"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": body}},
             timeout=10,

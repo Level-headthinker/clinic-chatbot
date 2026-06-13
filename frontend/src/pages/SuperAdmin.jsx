@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { Building2, Calendar, ChevronDown, ChevronRight, DollarSign, MessageSquare, Stethoscope, Users } from "lucide-react";
+import { Building2, Calendar, ChevronDown, ChevronRight, DollarSign, MessageSquare, Phone, Plus, Stethoscope, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -18,21 +18,43 @@ export default function SuperAdmin() {
   const navigate = useNavigate();
   const { notify } = useToast();
 
+  const [numbers, setNumbers] = useState([]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsRes, clinicsRes] = await Promise.all([
+      const [statsRes, clinicsRes, numbersRes] = await Promise.all([
         api.get("/super/stats"),
         api.get("/super/clinics"),
+        api.get("/super/whatsapp/numbers"),
       ]);
       setStats(statsRes.data);
       setClinics(clinicsRes.data);
+      setNumbers(numbersRes.data);
     } catch {
       notify("Failed to load platform data.", "error");
     } finally {
       setLoading(false);
     }
   }, [notify]);
+
+  const reloadNumbers = useCallback(async () => {
+    try {
+      const res = await api.get("/super/whatsapp/numbers");
+      setNumbers(res.data);
+    } catch {
+      notify("Failed to reload WhatsApp numbers.", "error");
+    }
+  }, [notify]);
+
+  const toggleNumber = async (id) => {
+    try {
+      await api.put(`/super/whatsapp/numbers/${id}/toggle`);
+      reloadNumbers();
+    } catch {
+      notify("Failed to toggle number.", "error");
+    }
+  };
 
   useEffect(() => {
     if (!user?.is_superadmin) {
@@ -197,9 +219,158 @@ export default function SuperAdmin() {
               </table>
             )}
           </section>
+
+          <WhatsAppNumbers
+            clinics={clinics}
+            numbers={numbers}
+            onConnected={reloadNumbers}
+            onToggle={toggleNumber}
+            notify={notify}
+          />
         </>
       )}
     </AppLayout>
+  );
+}
+
+function WhatsAppNumbers({ clinics, numbers, onConnected, onToggle, notify }) {
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [form, setForm] = useState({
+    tenant_id: "", phone_number_id: "", whatsapp_number: "",
+    waba_id: "", register_pin: "", message_limit_monthly: 1000,
+  });
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  const clinicName = (id) => clinics.find((c) => c.id === id)?.name || "Unknown";
+
+  const connect = async () => {
+    if (!form.tenant_id) { notify("Pick a clinic.", "error"); return; }
+    if (!form.phone_number_id.trim()) { notify("Enter the Meta phone_number_id.", "error"); return; }
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await api.post("/super/whatsapp/connect", {
+        ...form,
+        message_limit_monthly: Number(form.message_limit_monthly) || 1000,
+        waba_id: form.waba_id.trim() || null,
+        register_pin: form.register_pin.trim() || null,
+      });
+      setResult(res.data);
+      notify("Number connected — send it a WhatsApp to test.", "success");
+      onConnected();
+      setForm({ tenant_id: "", phone_number_id: "", whatsapp_number: "", waba_id: "", register_pin: "", message_limit_monthly: 1000 });
+    } catch (e) {
+      notify(e.response?.data?.detail || "Connect failed.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="table-panel" style={{ marginTop: 16 }}>
+      <div className="panel-header">
+        <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Phone size={18} /> WhatsApp Numbers
+        </h2>
+        <button className="btn btn-primary" onClick={() => setShow((s) => !s)}>
+          <Plus size={16} /> {show ? "Close" : "Connect a number"}
+        </button>
+      </div>
+
+      {show && (
+        <div style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
+          <p className="muted" style={{ marginTop: 0 }}>
+            After you add the clinic's number to your Meta WABA (one-time OTP step),
+            paste its <code>phone_number_id</code> here to route it to the clinic.
+            WABA ID + PIN are optional — fill them to auto-subscribe and auto-register.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+            <div className="field">
+              <label>Clinic *</label>
+              <select className="select" value={form.tenant_id} onChange={(e) => set("tenant_id", e.target.value)}>
+                <option value="">Select clinic</option>
+                {clinics.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Meta phone_number_id *</label>
+              <input className="input" placeholder="1234567890..." value={form.phone_number_id} onChange={(e) => set("phone_number_id", e.target.value)} />
+            </div>
+            <div className="field">
+              <label>WhatsApp number</label>
+              <input className="input" placeholder="+923001234567" value={form.whatsapp_number} onChange={(e) => set("whatsapp_number", e.target.value)} />
+            </div>
+            <div className="field">
+              <label>WABA ID (optional)</label>
+              <input className="input" placeholder="auto-subscribe webhook" value={form.waba_id} onChange={(e) => set("waba_id", e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Register PIN (optional)</label>
+              <input className="input" placeholder="6-digit PIN" value={form.register_pin} onChange={(e) => set("register_pin", e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Monthly message limit</label>
+              <input className="input" type="number" value={form.message_limit_monthly} onChange={(e) => set("message_limit_monthly", e.target.value)} />
+            </div>
+          </div>
+          <div className="action-row" style={{ marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={connect} disabled={busy}>
+              {busy ? "Connecting…" : "Connect"}
+            </button>
+          </div>
+
+          {result?.steps && (
+            <div style={{ marginTop: 12, fontSize: 13 }}>
+              {result.steps.map((s) => (
+                <div key={s.step} style={{ display: "flex", gap: 8, padding: "3px 0" }}>
+                  <span>{s.ok === true ? "✅" : s.ok === false ? "❌" : "⚪"}</span>
+                  <strong style={{ minWidth: 130 }}>{s.step}</strong>
+                  <span className="muted">{s.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {numbers.length === 0 ? (
+        <EmptyState icon={Phone} title="No numbers connected" description="Connect a clinic's WhatsApp number to start routing patient messages." />
+      ) : (
+        <table className="responsive-table" style={{ fontSize: 13 }}>
+          <thead>
+            <tr>
+              {["Clinic", "Number", "phone_number_id", "Used / Limit", "Status", ""].map((h) => <th key={h}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {numbers.map((n) => (
+              <tr key={n.id}>
+                <td data-label="Clinic"><strong>{n.clinic_name || clinicName(n.tenant_id)}</strong></td>
+                <td data-label="Number">{n.whatsapp_number || "—"}</td>
+                <td data-label="phone_number_id"><code style={{ fontSize: 11 }}>{n.phone_number_id}</code></td>
+                <td data-label="Used / Limit">{n.used} / {n.limit}</td>
+                <td data-label="Status">
+                  <span className={`badge ${n.is_active ? "badge-success" : "badge-danger"}`}>
+                    {n.is_active ? "Active" : "Inactive"}
+                  </span>
+                </td>
+                <td>
+                  <button
+                    className={n.is_active ? "btn btn-danger" : "btn btn-primary"}
+                    style={{ fontSize: 12, padding: "4px 10px" }}
+                    onClick={() => onToggle(n.id)}
+                  >
+                    {n.is_active ? "Disable" : "Enable"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
 

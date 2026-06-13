@@ -9,11 +9,16 @@ from app.models.user import User
 from app.models.doctor import Doctor
 from app.models.appointment import Appointment
 from app.models.chat import Lead, ChatSession
+import httpx
+
+from app.config import settings
 from app.models.flagged_log import FlaggedLog
 from app.models.whatsapp_number import WhatsAppNumberMapping
 from app.services.auth import get_current_user, require_admin_user
 from app.services.conversation_logger import flag_type_label
 from pydantic import BaseModel, Field
+
+_META_API_BASE = "https://graph.facebook.com/v19.0"
 
 router = APIRouter(prefix="/super", tags=["Super Admin"])
 
@@ -311,6 +316,112 @@ def register_number_mapping(
     db.add(mapping)
     db.commit()
     return {"id": str(mapping.id), "message": "Number registered"}
+
+
+class ConnectWhatsAppIn(BaseModel):
+    tenant_id: str
+    branch_id: Optional[str] = None
+    phone_number_id: str = Field(min_length=1, max_length=64)
+    whatsapp_number: str = Field(default="", max_length=32)
+    waba_id: Optional[str] = None              # to auto-subscribe the webhook
+    register_pin: Optional[str] = None          # 6-digit PIN to register the number
+    message_limit_monthly: int = Field(default=1000, ge=0)
+
+
+def _graph_post(path: str, json_body: dict) -> tuple[bool, str]:
+    """One Graph API POST with the platform access token. Never raises."""
+    if not settings.META_ACCESS_TOKEN:
+        return False, "META_ACCESS_TOKEN not set"
+    try:
+        resp = httpx.post(
+            f"{_META_API_BASE}/{path}",
+            headers={"Authorization": f"Bearer {settings.META_ACCESS_TOKEN}"},
+            json=json_body,
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return True, "ok"
+        return False, f"{resp.status_code}: {resp.text[:300]}"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+
+
+@router.post("/whatsapp/connect")
+def connect_whatsapp(
+    data: ConnectWhatsAppIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    """One-click connect: subscribe the WABA to our webhook, register the number
+    for the Cloud API, and create the phone_number_id -> clinic routing mapping.
+
+    Each Graph API step is attempted and its status reported, but the routing
+    MAPPING is always created — so the number works for receive/reply even if a
+    Graph automation step is skipped (e.g. already registered, or no waba_id).
+    """
+    tenant = db.query(Tenant).filter(Tenant.id == data.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    if data.branch_id:
+        branch = db.query(Branch).filter(
+            Branch.id == data.branch_id, Branch.tenant_id == tenant.id
+        ).first()
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found in that clinic")
+
+    steps = []
+
+    # 1 — subscribe our app to the clinic's WABA (so webhooks flow). Optional.
+    if data.waba_id:
+        ok, detail = _graph_post(f"{data.waba_id}/subscribed_apps", {})
+        steps.append({"step": "subscribe_app", "ok": ok, "detail": detail})
+    else:
+        steps.append({"step": "subscribe_app", "ok": None,
+                      "detail": "skipped — no waba_id (fine if the number is in your own WABA)"})
+
+    # 2 — register the number for the Cloud API. Needs a 6-digit PIN. Optional.
+    if data.register_pin:
+        ok, detail = _graph_post(
+            f"{data.phone_number_id}/register",
+            {"messaging_product": "whatsapp", "pin": data.register_pin},
+        )
+        # "already registered" is a success for our purposes.
+        if not ok and "already" in detail.lower():
+            ok, detail = True, "already registered"
+        steps.append({"step": "register_number", "ok": ok, "detail": detail})
+    else:
+        steps.append({"step": "register_number", "ok": None,
+                      "detail": "skipped — no PIN (register once in Meta if not done)"})
+
+    # 3 — create/update the routing mapping (this is what makes routing work).
+    mapping = db.query(WhatsAppNumberMapping).filter(
+        WhatsAppNumberMapping.phone_number_id == data.phone_number_id
+    ).first()
+    if mapping:
+        mapping.tenant_id = data.tenant_id
+        mapping.branch_id = data.branch_id
+        mapping.whatsapp_number = data.whatsapp_number or mapping.whatsapp_number
+        mapping.message_limit_monthly = data.message_limit_monthly
+        mapping.is_active = True
+        steps.append({"step": "mapping", "ok": True, "detail": "updated"})
+    else:
+        mapping = WhatsAppNumberMapping(
+            tenant_id=data.tenant_id, branch_id=data.branch_id,
+            phone_number_id=data.phone_number_id,
+            whatsapp_number=data.whatsapp_number,
+            message_limit_monthly=data.message_limit_monthly,
+        )
+        db.add(mapping)
+        steps.append({"step": "mapping", "ok": True, "detail": "created"})
+    db.commit()
+    db.refresh(mapping)
+
+    return {
+        "mapping_id": str(mapping.id),
+        "connected": True,
+        "steps": steps,
+        "note": "The number now routes to this clinic. Send it a WhatsApp to test.",
+    }
 
 
 @router.put("/whatsapp/numbers/{mapping_id}/limit")

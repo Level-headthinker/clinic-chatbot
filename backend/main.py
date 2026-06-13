@@ -54,6 +54,9 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS primary_color VARCHAR(7) DEFAULT '#2563eb'",
             "tenants.primary_color")
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS whatsapp_number VARCHAR(32)",
+            "tenants.whatsapp_number")
 
         # doctors — columns added after initial deploy
         _run_sql(conn,

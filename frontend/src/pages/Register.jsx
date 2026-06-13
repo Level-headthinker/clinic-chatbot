@@ -13,6 +13,7 @@ const emptyForm = {
   confirm_password: "",
   admin_full_name: "",
   city: "",
+  whatsapp_number: "",
 };
 
 export default function Register() {
@@ -33,6 +34,10 @@ export default function Register() {
   const validateStep1 = () => {
     if (!form.clinic_name.trim()) return "Clinic name is required";
     if (!form.clinic_slug || form.clinic_slug.length < 3) return "Clinic URL must be at least 3 characters";
+    if (form.whatsapp_number.trim()) {
+      const cleaned = form.whatsapp_number.replace(/[\s\-()]/g, "");
+      if (!/^\+?\d{10,15}$/.test(cleaned)) return "Enter a valid WhatsApp number (10–15 digits)";
+    }
     return null;
   };
 
@@ -66,6 +71,7 @@ export default function Register() {
         admin_email: form.admin_email,
         admin_password: form.admin_password,
         admin_full_name: form.admin_full_name,
+        whatsapp_number: form.whatsapp_number.trim() || null,
       });
       setSuccess(true);
     } catch (err) {
@@ -178,6 +184,19 @@ export default function Register() {
                 <option value="">Select city</option>
                 {CITIES.map((c) => <option key={c}>{c}</option>)}
               </select>
+            </div>
+
+            <div className="field">
+              <label>WhatsApp number</label>
+              <input
+                className="input"
+                placeholder="+92 300 1234567"
+                value={form.whatsapp_number}
+                onChange={(e) => set("whatsapp_number", e.target.value)}
+              />
+              <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>
+                The number patients will message. You can add or change it later.
+              </p>
             </div>
 
             <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", minHeight: 42 }} onClick={goNext}>

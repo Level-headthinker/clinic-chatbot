@@ -32,6 +32,7 @@ import {
 // feature: the PLAN_FEATURES key that gates this item (null = always visible)
 const navItems = [
   { label: "Dashboard",    icon: LayoutDashboard, path: "/dashboard",    feature: null },
+  { label: "Conversations", icon: MessageSquare,  path: "/conversations", feature: null },
   { label: "Analytics",    icon: BarChart2,        path: "/analytics",    feature: "analytics" },
   { label: "Doctors",      icon: Stethoscope,      path: "/doctors",      feature: null },
   { label: "Patients",     icon: UserCheck,        path: "/patients",     feature: null },

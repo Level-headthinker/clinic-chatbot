@@ -8,7 +8,7 @@ from app.database import engine, Base
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -57,6 +57,12 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS whatsapp_number VARCHAR(32)",
             "tenants.whatsapp_number")
+        _run_sql(conn,
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS human_handling BOOLEAN NOT NULL DEFAULT FALSE",
+            "chat_sessions.human_handling")
+        _run_sql(conn,
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS unread_count INTEGER NOT NULL DEFAULT 0",
+            "chat_sessions.unread_count")
 
         # doctors — columns added after initial deploy
         _run_sql(conn,
@@ -274,6 +280,7 @@ app.include_router(treatment_sessions.router)
 app.include_router(reports.router)
 app.include_router(reports.super_router)
 app.include_router(import_data.router)
+app.include_router(conversations.router)
 
 
 @app.get("/")

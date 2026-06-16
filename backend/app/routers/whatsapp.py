@@ -326,6 +326,15 @@ def _process_message(msg: dict, phone_number_id: str):
         print(f"⚠️  WhatsApp process error ({mtype} from {wa_from}): {e}")
 
 
+def _store_inbound(session, text: str):
+    """Append a patient message to the conversation and bump the unread badge —
+    used when a human has taken the chat over (bot stays silent)."""
+    msgs = list(session.messages or [])
+    msgs.append({"role": "user", "content": text})
+    session.messages = msgs
+    session.unread_count = (session.unread_count or 0) + 1
+
+
 def _handle_text(wa_from: str, text: str, phone_number_id: str):
     branch, tenant, _doctors = _load_context_for_phone(phone_number_id)
     if not branch or not tenant:
@@ -337,16 +346,24 @@ def _handle_text(wa_from: str, text: str, phone_number_id: str):
     db = SessionLocal()
     try:
         session = _get_or_create_session(wa_from, branch, tenant, db)
+        if not session.patient_phone:
+            session.patient_phone = _normalize_wa_phone(wa_from)
+        # Human takeover: a staff member is handling this chat — store the
+        # patient's message for the inbox and stay quiet (no bot reply).
+        if session.human_handling:
+            _store_inbound(session, text)
+            db.commit()
+            return
         guard = run_input_guard(text, f"wa:{wa_from}")
         if not guard.allowed:
             db.rollback()
             _send_whatsapp_reply(wa_from, guard.blocked_reason or "I cannot process that message.", from_pnid=phone_number_id)
             return
-        if not session.patient_phone:
-            session.patient_phone = _normalize_wa_phone(wa_from)
         reply, _intent, _lang = handle_turn(
             db, branch, tenant, session, guard.sanitized_message, modality="text"
         )
+        session.unread_count = (session.unread_count or 0) + 1  # patient turn unseen by staff
+        db.commit()
     except Exception as e:  # noqa: BLE001
         db.rollback()
         print(f"⚠️  WhatsApp text handler error: {e}")
@@ -377,16 +394,23 @@ def _handle_voice(wa_from: str, media_id: str, phone_number_id: str):
     db = SessionLocal()
     try:
         session = _get_or_create_session(wa_from, branch, tenant, db)
+        if not session.patient_phone:
+            session.patient_phone = _normalize_wa_phone(wa_from)
+        # Human takeover: store the transcribed voice note for the inbox, no bot.
+        if session.human_handling:
+            _store_inbound(session, f"🎤 {transcript}")
+            db.commit()
+            return
         guard = run_input_guard(transcript, f"wa:{wa_from}")
         if not guard.allowed:
             db.rollback()
             _send_whatsapp_reply(wa_from, guard.blocked_reason or "I cannot process that message.", from_pnid=phone_number_id)
             return
-        if not session.patient_phone:
-            session.patient_phone = _normalize_wa_phone(wa_from)
         reply, _intent, reply_language = handle_turn(
             db, branch, tenant, session, guard.sanitized_message, modality="voice"
         )
+        session.unread_count = (session.unread_count or 0) + 1
+        db.commit()
     except Exception as e:  # noqa: BLE001
         db.rollback()
         print(f"⚠️  WhatsApp voice handler error: {e}")

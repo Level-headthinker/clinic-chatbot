@@ -3,7 +3,7 @@
 # Leads store patient contact info collected during chat.
 # These are the two most important tables for the chatbot.
 
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Integer
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -23,6 +23,10 @@ class ChatSession(Base):
     patient_name = Column(String(255))
     patient_phone = Column(String(50))
     current_intent = Column(String(100))
+    # Team-inbox / human takeover: when a staff member takes over a conversation,
+    # the bot stays quiet and the receptionist replies by hand from the dashboard.
+    human_handling = Column(Boolean, default=False, nullable=False, server_default="false")
+    unread_count = Column(Integer, default=0, nullable=False, server_default="0")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

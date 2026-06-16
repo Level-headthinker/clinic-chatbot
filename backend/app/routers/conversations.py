@@ -116,6 +116,7 @@ def get_conversation(
         "channel": _channel(s.session_token),
         "patient_name": s.patient_name,
         "patient_phone": s.patient_phone,
+        "alternate_phone": s.alternate_phone,
         "human_handling": s.human_handling,
         "language": s.language,
         "messages": s.messages or [],

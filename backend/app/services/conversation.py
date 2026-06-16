@@ -236,6 +236,34 @@ def appointment_error_reply(reason, language):
 _PHONE_IN_MSG = re.compile(r"(\+92|92|0)3[0-9]{9}|\b\d{10,11}\b")
 
 
+def _last10(phone: str) -> str:
+    """Last 10 digits — the channel-agnostic identity of a PK mobile.
+    923001234567, 03001234567, +92 300 1234567 all → '3001234567'."""
+    digits = re.sub(r"\D", "", phone or "")
+    return digits[-10:] if len(digits) >= 10 else ""
+
+
+def _format_pk_phone(phone: str) -> str:
+    """Normalize a typed number to 03XXXXXXXXX for storage."""
+    local = _last10(phone)
+    return "0" + local if local else (phone or "")
+
+
+def detect_alternate_phone(primary_phone: str, message: str):
+    """If `message` contains a phone number DIFFERENT from primary_phone, return
+    it (formatted) — e.g. the patient is booking for a family member. Same number
+    (any format) → None, so we never store a duplicate of the primary."""
+    if not primary_phone:
+        return None
+    match = _PHONE_IN_MSG.search(message or "")
+    if not match:
+        return None
+    typed = match.group(0)
+    if _last10(typed) and _last10(typed) != _last10(primary_phone):
+        return _format_pk_phone(typed)
+    return None
+
+
 def concern_from_session(session):
     for msg in reversed(session.messages or []):
         content = msg.get("content", "").strip()
@@ -279,6 +307,7 @@ def try_save_appointment(session, tenant_id, branch_id, db, doctors, search_text
     appointment = Appointment(
         tenant_id=tenant_id, branch_id=branch_id, doctor_id=doctor.id,
         patient_name=session.patient_name, patient_phone=session.patient_phone,
+        alternate_phone=session.alternate_phone,
         patient_concern=concern_from_session(session), slot_datetime=slot, status="pending"
     )
     db.add(appointment)
@@ -295,7 +324,8 @@ def try_save_lead(session, tenant_id, branch_id, db) -> bool:
         return False
     lead = Lead(
         tenant_id=tenant_id, branch_id=branch_id, name=session.patient_name,
-        phone=session.patient_phone, concern=concern_from_session(session),
+        phone=session.patient_phone, alternate_phone=session.alternate_phone,
+        concern=concern_from_session(session),
         source="chatbot", status="new"
     )
     db.add(lead)
@@ -324,6 +354,14 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
             session.patient_name = info["name"]
         if info["phone"] and not session.patient_phone:
             session.patient_phone = info["phone"]
+
+    # Alternate booking number: once we know the patient's primary (WhatsApp/
+    # first) number, if they type a DIFFERENT one, keep it as a secondary
+    # contact under the same patient name. Same number → ignored (saved once).
+    if session.patient_phone and not session.alternate_phone:
+        alt = detect_alternate_phone(session.patient_phone, clean_message)
+        if alt:
+            session.alternate_phone = alt
 
     # ── Returning-patient lookup ─────────────────────────────
     is_returning = False

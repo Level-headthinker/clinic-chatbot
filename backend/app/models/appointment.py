@@ -18,7 +18,10 @@ class Appointment(Base):
     branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=False)
     patient_name = Column(String(255), nullable=False)
-    patient_phone = Column(String(50), nullable=False)
+    patient_phone = Column(String(50), nullable=False)  # primary = verified WhatsApp number
+    # Set only when the patient gives a DIFFERENT number for the booking
+    # (e.g. booking on behalf of a family member). Same number → stays NULL.
+    alternate_phone = Column(String(50), nullable=True)
     patient_concern = Column(Text)
     slot_datetime = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(50), default="pending")

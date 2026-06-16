@@ -173,6 +173,7 @@ export default function Conversations() {
                   <p className="muted" style={{ margin: 0, fontSize: 12 }}>
                     {thread.channel === "whatsapp" ? "WhatsApp" : "Web widget"}
                     {thread.patient_phone ? ` · ${thread.patient_phone}` : ""}
+                    {thread.alternate_phone ? ` · alt: ${thread.alternate_phone}` : ""}
                   </p>
                 </div>
                 {thread.human_handling ? (

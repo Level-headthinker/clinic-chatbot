@@ -21,7 +21,8 @@ class ChatSession(Base):
     messages = Column(JSONB, default=list)
     language = Column(String(10), default="en")
     patient_name = Column(String(255))
-    patient_phone = Column(String(50))
+    patient_phone = Column(String(50))           # primary = WhatsApp/first number
+    alternate_phone = Column(String(50))          # a different number given for booking
     current_intent = Column(String(100))
     # Team-inbox / human takeover: when a staff member takes over a conversation,
     # the bot stays quiet and the receptionist replies by hand from the dashboard.
@@ -42,7 +43,8 @@ class Lead(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
-    phone = Column(String(50), nullable=False)
+    phone = Column(String(50), nullable=False)    # primary = WhatsApp/first number
+    alternate_phone = Column(String(50))           # a different number given for booking
     concern = Column(Text)
     source = Column(String(100), default="chatbot")
     status = Column(String(50), default="new")

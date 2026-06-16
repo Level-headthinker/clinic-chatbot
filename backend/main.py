@@ -63,6 +63,15 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS unread_count INTEGER NOT NULL DEFAULT 0",
             "chat_sessions.unread_count")
+        _run_sql(conn,
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS alternate_phone VARCHAR(50)",
+            "chat_sessions.alternate_phone")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS alternate_phone VARCHAR(50)",
+            "appointments.alternate_phone")
+        _run_sql(conn,
+            "ALTER TABLE leads ADD COLUMN IF NOT EXISTS alternate_phone VARCHAR(50)",
+            "leads.alternate_phone")
 
         # doctors — columns added after initial deploy
         _run_sql(conn,

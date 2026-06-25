@@ -43,8 +43,12 @@ _TABLES = [
     ("knowledge_base.csv", KnowledgeEntry),
 ]
 
-# Never export secrets/tokens even though they're tenant-scoped.
-_SKIP_COLUMNS = {"session_token", "hashed_password"}
+# Columns left out of the export:
+#   - secrets/tokens (never leave the system)
+#   - tenant_id: an internal identifier, identical on every row, meaningless to
+#     the clinic. Dropped as noise. (Row `id` and foreign keys like patient_id
+#     are kept so records stay linkable / re-importable.)
+_SKIP_COLUMNS = {"session_token", "hashed_password", "tenant_id"}
 
 
 def _rows_to_csv(model, rows) -> str:

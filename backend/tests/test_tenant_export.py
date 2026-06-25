@@ -31,6 +31,12 @@ class TestRowsToCsv:
         assert "session_token" not in header
         assert "patient_name" in header
 
+    def test_internal_tenant_id_excluded_but_id_kept(self):
+        # tenant_id is dropped as internal noise; row id stays (needed for joins).
+        header = _rows_to_csv(ChatSession, []).splitlines()[0].split(",")
+        assert "tenant_id" not in header
+        assert "id" in header
+
 
 # Minimal fake DB so we can assert the ZIP shape without a real database.
 class _FakeQuery:

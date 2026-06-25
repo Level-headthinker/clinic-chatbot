@@ -24,6 +24,7 @@ import Reports from "./pages/Reports";
 import DataImport from "./pages/DataImport";
 import Conversations from "./pages/Conversations";
 import KnowledgeBase from "./pages/KnowledgeBase";
+import Subscription from "./pages/Subscription";
 import DoctorPortal from "./pages/DoctorPortal";
 import Landing from "./pages/Landing";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -160,6 +161,7 @@ export default function App() {
               <Route path="/voice" element={<PlanRoute feature="voice_agent"><Voice /></PlanRoute>} />
               <Route path="/analytics" element={<PlanRoute feature="analytics"><Analytics /></PlanRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/subscription" element={<ProtectedRoute><Subscription /></ProtectedRoute>} />
               <Route path="/waiting-room" element={<ProtectedRoute><WaitingRoom /></ProtectedRoute>} />
               <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />

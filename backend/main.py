@@ -8,7 +8,7 @@ from app.database import engine, Base
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations, knowledge
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations, knowledge, subscription
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -80,6 +80,26 @@ def _add_missing_columns():
             "CREATE INDEX IF NOT EXISTS ix_kb_fts ON knowledge_base "
             "USING GIN (to_tsvector('english', question || ' ' || answer))",
             "index knowledge_base full-text")
+        _run_sql(conn, """
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL UNIQUE REFERENCES tenants(id),
+                plan VARCHAR(20) NOT NULL DEFAULT 'starter',
+                status VARCHAR(20) NOT NULL DEFAULT 'trialing',
+                gateway VARCHAR(20),
+                gateway_customer_id VARCHAR(120),
+                gateway_subscription_id VARCHAR(120),
+                checkout_ref VARCHAR(120),
+                pending_plan VARCHAR(20),
+                trial_ends_at TIMESTAMPTZ,
+                current_period_end TIMESTAMPTZ,
+                cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ
+            )""", "create subscriptions")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_subs_checkout_ref ON subscriptions (checkout_ref)",
+            "index subscriptions.checkout_ref")
         _run_sql(conn,
             "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS human_handling BOOLEAN NOT NULL DEFAULT FALSE",
             "chat_sessions.human_handling")
@@ -314,6 +334,7 @@ app.include_router(reports.super_router)
 app.include_router(import_data.router)
 app.include_router(conversations.router)
 app.include_router(knowledge.router)
+app.include_router(subscription.router)
 
 
 @app.get("/")

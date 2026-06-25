@@ -98,6 +98,20 @@ def _reset_message_counters():
         db.close()
 
 
+def _expire_subscriptions():
+    """Flip trials/periods that have ended to 'expired'."""
+    from app.services.subscription_service import expire_due_subscriptions
+    db = SessionLocal()
+    try:
+        n = expire_due_subscriptions(db)
+        if n:
+            print(f"⏳ {n} subscription(s) expired")
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _weekly_reports():
     from app.services.reports import generate_scheduled_reports
     generate_scheduled_reports("weekly")
@@ -121,6 +135,9 @@ def start_scheduler():
                            day_of_week="mon", hour=8, minute=0, id="weekly_reports")
         _scheduler.add_job(_monthly_reports, "cron",
                            day=1, hour=8, minute=0, id="monthly_reports")
+        # Expire ended trials/subscriptions — hourly is plenty.
+        _scheduler.add_job(_expire_subscriptions, "interval",
+                           hours=1, id="expire_subscriptions")
         _scheduler.start()
 
 

@@ -182,6 +182,13 @@ def register(
     db.commit()
     db.refresh(tenant)
 
+    # Start the 3-day free trial immediately.
+    try:
+        from app.services.subscription_service import get_or_create_subscription
+        get_or_create_subscription(db, tenant)
+    except Exception:
+        db.rollback()  # never block registration on billing setup
+
     return {
         "message": "Clinic registered successfully",
         "tenant_id": str(tenant.id),

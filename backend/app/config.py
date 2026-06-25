@@ -33,6 +33,20 @@ class Settings(BaseSettings):
     # /voice/vapi-server and /voice/vapi-llm endpoints. Blank = endpoints closed.
     VAPI_SERVER_SECRET: str = ""
 
+    # ── Billing / subscriptions ────────────────────────────────
+    # Public base URL of the frontend (for checkout success/cancel redirects).
+    APP_BASE_URL: str = "http://localhost:3000"
+    # Which payment gateway to use: "manual" (test mode — no real money) or "safepay".
+    PAYMENT_PROVIDER: str = "manual"
+    # Safepay (Pakistan). Get these from the Safepay dashboard. Sandbox first.
+    SAFEPAY_API_KEY: str = ""
+    SAFEPAY_SECRET_KEY: str = ""
+    SAFEPAY_WEBHOOK_SECRET: str = ""
+    SAFEPAY_ENV: str = "sandbox"          # sandbox | production
+    # Secret for the test/manual provider's confirm endpoint (so test activation
+    # can't be triggered by a random request). Any value; only used in manual mode.
+    BILLING_TEST_SECRET: str = "test-billing-secret"
+
     # VAPI.ai — Voice Agent (free 10 min/month, then pay-per-minute)
     VAPI_API_KEY: str = ""               # From vapi.ai dashboard
     VAPI_PHONE_NUMBER_ID: str = ""       # VAPI phone number ID (not the number itself)

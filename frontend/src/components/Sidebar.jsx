@@ -10,6 +10,7 @@ import {
   BookOpen,
   Building2,
   Calendar,
+  CreditCard,
   FileBarChart,
   LayoutDashboard,
   Lock,
@@ -50,6 +51,7 @@ const navItems = [
   { label: "Branches",     icon: Building2,        path: "/branches",     feature: "multi_branch" },
   { label: "Staff",        icon: UserCog,          path: "/users",        feature: null },
   { label: "Chat Preview", icon: MessageSquare,    path: "/chat-preview", feature: null },
+  { label: "Subscription", icon: CreditCard,       path: "/subscription", feature: null },
   { label: "Settings",     icon: Settings,         path: "/settings",     feature: null },
 ];
 

@@ -19,3 +19,4 @@ from app.models.system_report import SystemReport
 from app.models.import_mapping import ImportMapping
 from app.models.knowledge import KnowledgeEntry
 from app.models.subscription import Subscription
+from app.models.audit_log import AuditLog

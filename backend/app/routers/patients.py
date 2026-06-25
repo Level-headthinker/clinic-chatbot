@@ -1,13 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime, timezone
 from app.database import get_db
 from app.models.patient import Patient
 from app.models.visit import VisitRecord
 from app.models.user import User
 from app.services.auth import require_admin_user
+from app.services.audit import log_audit, snapshot
+
+# Fields captured in audit snapshots for a patient.
+_PATIENT_FIELDS = [
+    "name", "phone", "age", "gender", "blood_group",
+    "allergies", "chronic_conditions", "emergency_contact",
+]
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
@@ -36,6 +44,7 @@ class PatientUpdate(BaseModel):
 @router.post("/")
 def create_patient(
     data: PatientCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user)
 ):
@@ -61,6 +70,14 @@ def create_patient(
         emergency_contact=data.emergency_contact
     )
     db.add(patient)
+    db.flush()
+    log_audit(
+        db, tenant_id=current_user.tenant_id, action="create",
+        entity_type="patient", entity_id=patient.id,
+        summary=f"Created patient {patient.name}",
+        after=snapshot(patient, _PATIENT_FIELDS),
+        user=current_user, request=request,
+    )
     db.commit()
     db.refresh(patient)
     return {
@@ -213,6 +230,7 @@ def get_patient(
 def update_patient(
     patient_id: str,
     data: PatientUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user)
 ):
@@ -223,6 +241,7 @@ def update_patient(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
+    before = snapshot(patient, _PATIENT_FIELDS)
     if data.name is not None: patient.name = data.name
     if data.age is not None: patient.age = data.age
     if data.gender is not None: patient.gender = data.gender
@@ -231,13 +250,76 @@ def update_patient(
     if data.chronic_conditions is not None: patient.chronic_conditions = data.chronic_conditions
     if data.emergency_contact is not None: patient.emergency_contact = data.emergency_contact
 
+    # Only record the fields that actually changed.
+    after = snapshot(patient, _PATIENT_FIELDS)
+    changed_before = {k: v for k, v in before.items() if before[k] != after[k]}
+    changed_after = {k: v for k, v in after.items() if before[k] != after[k]}
+    if changed_after:
+        log_audit(
+            db, tenant_id=current_user.tenant_id, action="update",
+            entity_type="patient", entity_id=patient.id,
+            summary=f"Updated patient {patient.name}",
+            before=changed_before, after=changed_after,
+            user=current_user, request=request,
+        )
     db.commit()
     return {"message": "Patient updated successfully"}
+
+
+@router.get("/trash/list")
+def list_deleted_patients(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user)
+):
+    """Soft-deleted patients (the 'trash bin') — recoverable via restore."""
+    patients = db.query(Patient).filter(
+        Patient.tenant_id == current_user.tenant_id,
+        Patient.is_active == False,
+    ).order_by(Patient.deleted_at.desc().nullslast()).all()
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "phone": p.phone,
+            "deleted_at": str(p.deleted_at) if p.deleted_at else None,
+        }
+        for p in patients
+    ]
+
+
+@router.post("/{patient_id}/restore")
+def restore_patient(
+    patient_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user)
+):
+    """Bring a soft-deleted patient back. Recovers accidental deletes without
+    touching backups."""
+    patient = db.query(Patient).filter(
+        Patient.id == patient_id,
+        Patient.tenant_id == current_user.tenant_id,
+        Patient.is_active == False,
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Deleted patient not found")
+
+    patient.is_active = True
+    patient.deleted_at = None
+    log_audit(
+        db, tenant_id=current_user.tenant_id, action="restore",
+        entity_type="patient", entity_id=patient.id,
+        summary=f"Restored patient {patient.name}",
+        user=current_user, request=request,
+    )
+    db.commit()
+    return {"message": "Patient restored"}
 
 
 @router.delete("/{patient_id}")
 def delete_patient(
     patient_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user)
 ):
@@ -249,5 +331,13 @@ def delete_patient(
         raise HTTPException(status_code=404, detail="Patient not found")
 
     patient.is_active = False
+    patient.deleted_at = datetime.now(timezone.utc)
+    log_audit(
+        db, tenant_id=current_user.tenant_id, action="delete",
+        entity_type="patient", entity_id=patient.id,
+        summary=f"Deleted patient {patient.name}",
+        before=snapshot(patient, _PATIENT_FIELDS),
+        user=current_user, request=request,
+    )
     db.commit()
     return {"message": "Patient removed"}

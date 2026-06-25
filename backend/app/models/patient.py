@@ -22,6 +22,7 @@ class Patient(Base):
     chronic_conditions = Column(Text)
     emergency_contact = Column(String(100))
     is_active = Column(Boolean, default=True)
+    deleted_at = Column(DateTime(timezone=True))   # set when soft-deleted; NULL = live
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

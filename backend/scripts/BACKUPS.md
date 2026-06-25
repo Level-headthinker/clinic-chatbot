@@ -61,6 +61,23 @@ dropdb clinicbot_restore_test
 2. `restore_db.sh` into the production `DATABASE_URL` (it asks for `yes`).
 3. Start the backend; verify login + a clinic's data.
 
+## Restoring ONE clinic (without touching the others)
+A full restore rolls **every** clinic back to the backup time — wrong if only one
+clinic lost data. Use `restore_tenant.sh` instead: it loads the dump into a
+scratch DB, then copies just that tenant's rows back into production (append).
+```bash
+PROD_DATABASE_URL='postgres://.../clinicbot' \
+SCRATCH_DATABASE_URL='postgres://.../clinicbot_scratch' \
+./backend/scripts/restore_tenant.sh /var/backups/clinicbot/clinicbot_YYYYmmdd_HHMMSS.sql.gz <tenant_id>
+```
+Most single-clinic losses don't even need this — **soft-deletes** (a patient's
+trash bin + restore) and the **audit log** recover accidental changes live.
+
+## A clinic wants a copy of their own data
+That's an export, not a backup. An admin can download their clinic's data
+(ZIP of CSVs) from `GET /export/my-data`; a superadmin can export any clinic via
+`GET /export/clinic/{tenant_id}`. Good for data portability / a clinic leaving.
+
 ## Recommended cadence
 - **Daily** automated dump, **14-day** retention on the server.
 - **Off-site** copy of each dump (S3/rclone).

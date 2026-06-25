@@ -12,7 +12,7 @@ init_sentry()
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations, knowledge, subscription
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations, knowledge, subscription, audit, export
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -254,6 +254,31 @@ def _add_missing_columns():
                 updated_at TIMESTAMPTZ DEFAULT now(),
                 CONSTRAINT uq_import_mapping_tenant_entity UNIQUE (tenant_id, entity)
             )""", "create import_mappings")
+        _run_sql(conn, """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id),
+                user_id UUID REFERENCES users(id),
+                user_email VARCHAR(255),
+                action VARCHAR(20) NOT NULL,
+                entity_type VARCHAR(50) NOT NULL,
+                entity_id VARCHAR(64),
+                summary VARCHAR(255),
+                "before" JSONB,
+                "after" JSONB,
+                ip VARCHAR(64),
+                created_at TIMESTAMPTZ DEFAULT now()
+            )""", "create audit_logs")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_audit_tenant_created ON audit_logs (tenant_id, created_at)",
+            "index audit_logs.tenant_created")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_audit_entity ON audit_logs (entity_type, entity_id)",
+            "index audit_logs.entity")
+        # Soft-delete bookkeeping: when a record was removed (complements is_active).
+        _run_sql(conn,
+            "ALTER TABLE patients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+            "patients.deleted_at")
         print("✅ Migrations complete")
 
 
@@ -339,6 +364,8 @@ app.include_router(import_data.router)
 app.include_router(conversations.router)
 app.include_router(knowledge.router)
 app.include_router(subscription.router)
+app.include_router(audit.router)
+app.include_router(export.router)
 
 
 @app.get("/")

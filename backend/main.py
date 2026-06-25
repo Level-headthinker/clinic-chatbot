@@ -4,6 +4,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
+from app.observability import init_sentry
+
+# Initialize error monitoring before anything else (no-op unless SENTRY_DSN set).
+init_sentry()
 
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all

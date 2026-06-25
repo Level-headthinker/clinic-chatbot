@@ -2,8 +2,6 @@
 # Register creates the tenant and admin user together in one step.
 # Login checks credentials and returns a JWT token.
 import re
-import time
-from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -25,7 +23,6 @@ from app.services.auth import (
 from app.services.email import send_password_reset_email
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-_auth_attempts: dict[str, list[float]] = defaultdict(list)
 
 
 def _resolve_branch_slug(user, tenant, db) -> str:
@@ -51,19 +48,14 @@ def _client_key(request: Request, suffix: str) -> str:
 
 
 def _enforce_rate_limit(key: str, max_attempts: int, window_seconds: int):
-    now = time.time()
-    cutoff = now - window_seconds
-    attempts = [t for t in _auth_attempts[key] if t > cutoff]
-    if attempts:
-        _auth_attempts[key] = attempts
-    else:
-        _auth_attempts.pop(key, None)
-    if len(attempts) >= max_attempts:
+    # Shared limiter — Redis-backed across workers when REDIS_URL is set,
+    # in-memory otherwise.
+    from app.services.rate_limit import rate_limit_allow
+    if not rate_limit_allow(key, max_attempts, window_seconds):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many attempts. Please try again later."
         )
-    _auth_attempts[key].append(now)
 
 
 class RegisterRequest(BaseModel):

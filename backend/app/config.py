@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     GROQ_API_KEY: str
+
+    # Deployment environment label (development | staging | production).
+    ENVIRONMENT: str = "development"
+    # Error monitoring (Sentry). Blank = disabled — set the DSN to turn it on.
+    SENTRY_DSN: str = ""
+    # Redis URL for rate-limit + webhook de-dup across workers. Blank = in-memory
+    # fallback (fine for a single worker; required before running >1 worker).
+    REDIS_URL: str = ""
     MAIL_EMAIL: str = ""
     MAIL_PASSWORD: str = ""
     ADMIN_EMAIL: str = ""

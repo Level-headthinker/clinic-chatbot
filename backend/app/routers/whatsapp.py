@@ -51,21 +51,16 @@ router = APIRouter(prefix="/whatsapp", tags=["WhatsApp Bot"])
 META_API_BASE = "https://graph.facebook.com/v19.0"
 
 # Message-id de-dup — Meta redelivers if a 200 is slow; without this a retry
-# would re-run the brain and double-reply (or double-book).
-_seen_messages: dict[str, float] = {}
+# would re-run the brain and double-reply (or double-book). Backed by Redis when
+# configured so it works across multiple workers/replicas.
 _SEEN_TTL = 600  # seconds
 
 
 def _already_seen(message_id: str) -> bool:
     if not message_id:
         return False
-    now = time.time()
-    for k in [k for k, t in _seen_messages.items() if t < now - _SEEN_TTL]:
-        _seen_messages.pop(k, None)
-    if message_id in _seen_messages:
-        return True
-    _seen_messages[message_id] = now
-    return False
+    from app.services.rate_limit import dedup_seen
+    return dedup_seen(f"wa:msg:{message_id}", _SEEN_TTL)
 
 
 def _normalize_wa_phone(wa_id: str) -> str:

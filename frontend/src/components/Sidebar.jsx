@@ -11,6 +11,7 @@ import {
   Building2,
   Calendar,
   CreditCard,
+  Database,
   FileBarChart,
   LayoutDashboard,
   Lock,
@@ -52,6 +53,7 @@ const navItems = [
   { label: "Staff",        icon: UserCog,          path: "/users",        feature: null },
   { label: "Chat Preview", icon: MessageSquare,    path: "/chat-preview", feature: null },
   { label: "Subscription", icon: CreditCard,       path: "/subscription", feature: null },
+  { label: "Data & Privacy", icon: Database,       path: "/data-privacy", feature: null },
   { label: "Settings",     icon: Settings,         path: "/settings",     feature: null },
 ];
 

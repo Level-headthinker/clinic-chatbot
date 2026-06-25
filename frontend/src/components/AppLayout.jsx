@@ -1,8 +1,20 @@
 import { Menu } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import Sidebar from "./Sidebar";
+
+// The bell surfaces operational alerts (today's appointments, new leads, due
+// follow-ups). It only belongs on the day-to-day operational pages — not on
+// content/config pages like Knowledge Base, Analytics, Conversations, Settings.
+const BELL_PATHS = [
+  "/dashboard", "/appointments", "/patients", "/leads",
+  "/follow-ups", "/waiting-room", "/billing", "/doctors", "/services",
+];
+
+function shouldShowBell(pathname) {
+  return BELL_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
 
 // Inject keyframe animations once
 (function injectStyles() {
@@ -326,8 +338,11 @@ function NotificationBell() {
 }
 
 // ── AppLayout ─────────────────────────────────────────────────────────────────
-export default function AppLayout({ title, subtitle, actions, children }) {
+export default function AppLayout({ title, subtitle, actions, children, showBell }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { pathname } = useLocation();
+  // Explicit prop wins; otherwise decide by route.
+  const bellVisible = showBell ?? shouldShowBell(pathname);
 
   return (
     <div className="app-shell">
@@ -355,7 +370,7 @@ export default function AppLayout({ title, subtitle, actions, children }) {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <NotificationBell />
+            {bellVisible && <NotificationBell />}
             {actions && <div className="page-actions">{actions}</div>}
           </div>
         </header>

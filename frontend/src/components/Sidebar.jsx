@@ -7,6 +7,7 @@ import UpgradeModal from "./UpgradeModal";
 import {
   BarChart2,
   Bell,
+  BookOpen,
   Building2,
   Calendar,
   FileBarChart,
@@ -33,6 +34,7 @@ import {
 const navItems = [
   { label: "Dashboard",    icon: LayoutDashboard, path: "/dashboard",    feature: null },
   { label: "Conversations", icon: MessageSquare,  path: "/conversations", feature: null },
+  { label: "Knowledge Base", icon: BookOpen,      path: "/knowledge",    feature: null },
   { label: "Analytics",    icon: BarChart2,        path: "/analytics",    feature: "analytics" },
   { label: "Doctors",      icon: Stethoscope,      path: "/doctors",      feature: null },
   { label: "Patients",     icon: UserCheck,        path: "/patients",     feature: null },

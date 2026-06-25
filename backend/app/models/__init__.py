@@ -17,3 +17,4 @@ from app.models.treatment_session import TreatmentSession
 from app.models.whatsapp_number import WhatsAppNumberMapping
 from app.models.system_report import SystemReport
 from app.models.import_mapping import ImportMapping
+from app.models.knowledge import KnowledgeEntry

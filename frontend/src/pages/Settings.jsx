@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
-import { Save, Bot, Building2, Clock, Palette } from "lucide-react";
+import { Save, Bot, Building2, Palette, MessageCircle, Code } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import { useToast } from "../context/ToastContext";
 
 const TIMEZONES = ["Asia/Karachi", "Asia/Kolkata", "Asia/Dubai", "UTC"];
 
+const TONES = [
+  { value: "warm", label: "Warm & friendly", desc: "Caring, like a kind receptionist", sample: "Bilkul! Main aap ki madad ke liye hoon. 😊" },
+  { value: "formal", label: "Formal & polished", desc: "Respectful and proper", sample: "Certainly. I would be pleased to assist you." },
+  { value: "casual", label: "Casual & relaxed", desc: "Friendly and conversational", sample: "Sure thing! What do you need help with?" },
+  { value: "professional", label: "Professional & efficient", desc: "Clear and to the point", sample: "Of course. Which doctor would you like to see?" },
+  { value: "concise", label: "Concise & direct", desc: "Fewest words needed", sample: "Sure — which day works for you?" },
+];
+
 const defaultForm = {
   clinic_name: "",
   bot_name: "",
   welcome_message: "",
+  bot_tone: "warm",
   primary_color: "#0d9488",
   branch_bot_name: "",
   branch_welcome_message: "",
@@ -89,6 +98,44 @@ export default function Settings() {
               placeholder="Hello! I'm your clinic assistant. How can I help you today?" />
             <p className="field-hint">First message patients see when they open the chat widget.</p>
           </div>
+          <div className="field">
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <MessageCircle size={15} /> Conversation Tone
+            </label>
+            <p className="field-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+              How the bot sounds to patients. It only shapes the style — the safety rules never change.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+              {TONES.map((t) => {
+                const active = (form.bot_tone || "warm") === t.value;
+                return (
+                  <button
+                    type="button"
+                    key={t.value}
+                    onClick={() => setForm((f) => ({ ...f, bot_tone: t.value }))}
+                    style={{
+                      textAlign: "left", padding: "12px 14px", borderRadius: 10, cursor: "pointer",
+                      border: `2px solid ${active ? "var(--primary)" : "var(--line)"}`,
+                      background: active ? "var(--primary-soft, rgba(13,148,136,.08))" : "var(--surface)",
+                      transition: "all .15s",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <strong style={{ fontSize: 14, color: active ? "var(--primary-text, var(--primary))" : "var(--text-1)" }}>{t.label}</strong>
+                      <span style={{
+                        width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+                        border: `2px solid ${active ? "var(--primary)" : "var(--line)"}`,
+                        background: active ? "var(--primary)" : "transparent",
+                        display: "grid", placeItems: "center",
+                      }}>{active && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}</span>
+                    </div>
+                    <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--muted)" }}>{t.desc}</p>
+                    <p style={{ margin: "8px 0 0", fontSize: 12, fontStyle: "italic", color: "var(--text-2, var(--muted))" }}>“{t.sample}”</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Branding */}
@@ -166,7 +213,7 @@ export default function Settings() {
           <div className="panel">
             <div className="panel-header" style={{ marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Clock size={18} style={{ color: "var(--primary)" }} />
+                <Code size={18} style={{ color: "var(--primary)" }} />
                 <h3>Chat Widget Embed Code</h3>
               </div>
             </div>

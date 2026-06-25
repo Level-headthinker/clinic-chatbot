@@ -8,7 +8,7 @@ from app.database import engine, Base
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations, knowledge
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -57,6 +57,29 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS whatsapp_number VARCHAR(32)",
             "tenants.whatsapp_number")
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bot_tone VARCHAR(20) DEFAULT 'warm'",
+            "tenants.bot_tone")
+        _run_sql(conn, """
+            CREATE TABLE IF NOT EXISTS knowledge_base (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id),
+                branch_id UUID REFERENCES branches(id),
+                question VARCHAR(500) NOT NULL,
+                answer TEXT NOT NULL,
+                category VARCHAR(100),
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ
+            )""", "create knowledge_base")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_kb_tenant ON knowledge_base (tenant_id)",
+            "index knowledge_base.tenant_id")
+        # Full-text search index over question + answer (lightweight RAG retrieval)
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_kb_fts ON knowledge_base "
+            "USING GIN (to_tsvector('english', question || ' ' || answer))",
+            "index knowledge_base full-text")
         _run_sql(conn,
             "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS human_handling BOOLEAN NOT NULL DEFAULT FALSE",
             "chat_sessions.human_handling")
@@ -290,6 +313,7 @@ app.include_router(reports.router)
 app.include_router(reports.super_router)
 app.include_router(import_data.router)
 app.include_router(conversations.router)
+app.include_router(knowledge.router)
 
 
 @app.get("/")

@@ -39,6 +39,7 @@ from app.services.llm import (
     _message_may_contain_patient_info,
 )
 from app.services.output_guard import run_output_guard
+from app.services.knowledge_retrieval import retrieve_knowledge, format_knowledge
 
 BOOKED_STATUSES = ["pending", "confirmed"]
 # Whole-word/phrase matching only. "book" is deliberately NOT here — it's a
@@ -416,6 +417,10 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
     session.language = language
     session.current_intent = intent
 
+    # ── Knowledge-base retrieval (lightweight RAG) ───────────
+    kb_entries = retrieve_knowledge(db, tenant.id, clean_message, k=3)
+    kb_text = format_knowledge(kb_entries)
+
     # ── AI response (hardened prompt + output guard) ─────────
     raw_ai_reply = get_ai_response(
         user_message=clean_message,
@@ -428,6 +433,8 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
         is_returning=is_returning,
         visit_count=visit_count,
         language=language,
+        tone=getattr(tenant, "bot_tone", None) or "warm",
+        knowledge_base=kb_text,
     )
 
     guarded_reply = run_output_guard(raw_ai_reply, clean_message, language)

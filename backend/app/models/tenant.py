@@ -21,6 +21,9 @@ class Tenant(Base):
     bot_name = Column(String(100), default="ClinicBot")
     welcome_message = Column(Text, default="Hello! How can I help you today?")
     primary_color = Column(String(7), default="#2563eb")
+    # Conversational tone the bot uses for this clinic (warm/formal/casual/...).
+    # Injected into the LLM prompt so each clinic can pick the "feel" of its bot.
+    bot_tone = Column(String(20), default="warm")
     # The clinic's own WhatsApp number (human-readable, e.g. +923001234567),
     # captured at sign-up. Routing still uses the Meta phone_number_id on the
     # whatsapp_number_mappings row — this is for display + the connect screen.

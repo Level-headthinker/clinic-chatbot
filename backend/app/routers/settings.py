@@ -12,11 +12,15 @@ from app.services.auth import get_current_user
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
 
+_ALLOWED_TONES = {"warm", "formal", "casual", "professional", "concise"}
+
+
 class ClinicSettings(BaseModel):
     clinic_name: Optional[str] = None
     bot_name: Optional[str] = None
     welcome_message: Optional[str] = None
     primary_color: Optional[str] = None
+    bot_tone: Optional[str] = None
     # Branch-level overrides (for the user's main branch)
     branch_bot_name: Optional[str] = None
     branch_welcome_message: Optional[str] = None
@@ -50,6 +54,7 @@ def get_settings(
         "bot_name": tenant.bot_name,
         "welcome_message": tenant.welcome_message,
         "primary_color": tenant.primary_color,
+        "bot_tone": tenant.bot_tone or "warm",
         "branch_bot_name": branch.bot_name if branch else None,
         "branch_welcome_message": branch.welcome_message if branch else None,
         "branch_address": branch.address if branch else None,
@@ -81,6 +86,11 @@ def update_settings(
             tenant.welcome_message = data.welcome_message.strip()
         if data.primary_color is not None:
             tenant.primary_color = data.primary_color
+        if data.bot_tone is not None:
+            tone = data.bot_tone.strip().lower()
+            if tone not in _ALLOWED_TONES:
+                raise HTTPException(status_code=400, detail=f"Tone must be one of {sorted(_ALLOWED_TONES)}")
+            tenant.bot_tone = tone
 
     # Branch settings (all admins can update their own branch)
     if current_user.branch_id:

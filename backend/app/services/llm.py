@@ -154,6 +154,14 @@ CLINIC INFORMATION
 {clinic_info}
 
 ═══════════════════════════════════════════
+CLINIC KNOWLEDGE BASE
+═══════════════════════════════════════════
+The following are answers the clinic has provided to common questions. If the
+patient's question matches one of these, use this information to answer. If this
+section is empty or does not cover the question, follow the ZERO INVENTION rules.
+{knowledge_base}
+
+═══════════════════════════════════════════
 AVAILABLE DOCTORS
 ═══════════════════════════════════════════
 {doctors_info}
@@ -162,11 +170,27 @@ AVAILABLE DOCTORS
 RESPONSE RULES
 ═══════════════════════════════════════════
 - Maximum 3 sentences per reply.
-- Be warm and caring like a real receptionist.
+- {tone_instruction}
 - Never use bullet points or headers in your replies.
 - End with a clear question or next step when appropriate.
 - You are {bot_name}, the assistant for {clinic_name}. Always stay in this role.
 """
+
+
+# Per-clinic conversational tone. The clinic picks one in Settings; it only
+# shapes the *style* of replies — never the safety rules, which stay fixed.
+TONE_INSTRUCTIONS = {
+    "warm":         "Be warm, friendly and caring, like a kind receptionist who genuinely wants to help.",
+    "formal":       "Be formal, polished and respectful. Use proper, courteous language at all times.",
+    "casual":       "Be casual, relaxed and conversational, like a friendly helper chatting naturally.",
+    "professional": "Be efficient, clear and professional. Get to the point politely without small talk.",
+    "concise":      "Keep replies very short and direct — the fewest words needed to help.",
+}
+DEFAULT_TONE = "warm"
+
+
+def tone_instruction(tone: str) -> str:
+    return TONE_INSTRUCTIONS.get((tone or "").strip().lower(), TONE_INSTRUCTIONS[DEFAULT_TONE])
 
 
 # ════════════════════════════════════════════════════════════
@@ -414,6 +438,8 @@ def get_ai_response(
     is_returning: bool = False,
     visit_count: int = 0,
     language: str | None = None,
+    tone: str = DEFAULT_TONE,
+    knowledge_base: str = "",
 ) -> str:
 
     # Caller (handle_turn) passes the session-aware language so a digit-only
@@ -454,6 +480,7 @@ def get_ai_response(
         bot_name=bot_name,
         clinic_name=clinic_name,
         clinic_info=clinic_info,
+        knowledge_base=knowledge_base.strip() or "(No additional knowledge entries.)",
         doctors_info=doctors_info,
         patient_name=patient_name,
         patient_phone=patient_phone,
@@ -461,6 +488,7 @@ def get_ai_response(
                      if is_returning else "No — new patient, collect name and phone naturally",
         visit_count=f"{visit_count} previous appointments" if visit_count > 0 else "First time visitor",
         detected_language_instruction=_LANGUAGE_INSTRUCTION[language],
+        tone_instruction=tone_instruction(tone),
     )
 
     messages = [{"role": "system", "content": system_prompt}]

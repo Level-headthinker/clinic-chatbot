@@ -23,6 +23,7 @@ import Services from "./pages/Services";
 import Reports from "./pages/Reports";
 import DataImport from "./pages/DataImport";
 import Conversations from "./pages/Conversations";
+import KnowledgeBase from "./pages/KnowledgeBase";
 import DoctorPortal from "./pages/DoctorPortal";
 import Landing from "./pages/Landing";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -149,6 +150,7 @@ export default function App() {
               <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
               <Route path="/chat-preview" element={<ProtectedRoute><ChatPreview /></ProtectedRoute>} />
               <Route path="/conversations" element={<ProtectedRoute><Conversations /></ProtectedRoute>} />
+              <Route path="/knowledge" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} />
               <Route path="/patients" element={<ProtectedRoute><Patients /></ProtectedRoute>} />
               <Route path="/patients/:id" element={<ProtectedRoute><PatientDetail /></ProtectedRoute>} />
               <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />

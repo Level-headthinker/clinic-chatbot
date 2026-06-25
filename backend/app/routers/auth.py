@@ -16,10 +16,13 @@ from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import (
     create_access_token,
+    create_password_reset_token,
     get_current_user,
     hash_password,
     verify_password,
+    verify_password_reset_token,
 )
+from app.services.email import send_password_reset_email
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 _auth_attempts: dict[str, list[float]] = defaultdict(list)
@@ -266,6 +269,72 @@ def logout(request: Request, response: Response):
         samesite="none" if request.url.scheme == "https" else "lax",
     )
     return {"message": "Logged out"}
+
+
+# ── Self-service password reset ─────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one number")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Password must contain at least one letter")
+        return v
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    data: ForgotPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Email a reset link. Always returns the same message — never reveals
+    whether an email is registered (no account enumeration)."""
+    _enforce_rate_limit(_client_key(request, "forgot"), max_attempts=5, window_seconds=900)
+
+    from sqlalchemy import func as sa_func
+    email = data.email.strip().lower()
+    user = db.query(User).filter(
+        sa_func.lower(User.email) == email, User.is_active == True
+    ).first()
+    if user:
+        token = create_password_reset_token(str(user.id))
+        link = f"{settings.APP_BASE_URL.rstrip('/')}/reset-password?token={token}"
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+        send_password_reset_email(user.email, link, tenant.name if tenant else "ClinicBot")
+
+    return {"message": "If that email is registered, a password reset link has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(
+    data: ResetPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    _enforce_rate_limit(_client_key(request, "reset"), max_attempts=10, window_seconds=900)
+
+    user_id = verify_password_reset_token(data.token)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired.")
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired.")
+
+    user.hashed_password = hash_password(data.new_password)
+    db.commit()
+    return {"message": "Password updated. You can now log in with your new password."}
 
 
 @router.get("/me", response_model=MeResponse)

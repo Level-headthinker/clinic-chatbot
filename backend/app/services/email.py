@@ -33,6 +33,34 @@ def send_email(to: str, subject: str, body: str):
     threading.Thread(target=_send, daemon=True).start()
 
 
+def send_password_reset_email(to: str, reset_link: str, clinic_name: str = "ClinicBot"):
+    clinic_name = escape(clinic_name or "ClinicBot")
+    reset_link_attr = escape(reset_link or "")
+    body = f"""
+    <html><body style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b;">
+      <div style="max-width: 480px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+        <div style="background: #0d9488; padding: 20px;">
+          <h2 style="color: #fff; margin: 0;">Reset your password</h2>
+        </div>
+        <div style="padding: 24px;">
+          <p>We received a request to reset your {clinic_name} password.</p>
+          <p style="margin: 24px 0;">
+            <a href="{reset_link_attr}" style="background:#0d9488;color:#fff;text-decoration:none;
+               padding:12px 22px;border-radius:8px;display:inline-block;font-weight:bold;">
+               Reset password</a>
+          </p>
+          <p style="font-size: 13px; color: #64748b;">
+            This link expires in 30 minutes. If you didn't request this, you can safely ignore this email —
+            your password won't change.
+          </p>
+          <p style="font-size: 12px; color: #94a3b8; word-break: break-all;">{reset_link_attr}</p>
+        </div>
+      </div>
+    </body></html>
+    """
+    send_email(to, "Reset your password", body)
+
+
 def send_booking_notification(
     patient_name: str,
     patient_phone: str,

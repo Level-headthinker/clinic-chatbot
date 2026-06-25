@@ -82,7 +82,16 @@ export default function Login() {
           </div>
 
           <div className="field">
-            <label>Password</label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <label>Password</label>
+              <button
+                type="button"
+                onClick={() => navigate("/forgot-password")}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--primary)", padding: 0 }}
+              >
+                Forgot password?
+              </button>
+            </div>
             <input
               className="input"
               type="password"

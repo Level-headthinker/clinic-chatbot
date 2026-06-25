@@ -45,6 +45,30 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     )
 
 
+# ── Password reset tokens ────────────────────────────────────
+# A short-lived, purpose-scoped JWT. No DB column needed; the token itself
+# carries the user id + a "reset" purpose so it can't be used as a login token.
+
+def create_password_reset_token(user_id: str, expires_minutes: int = 30) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    return jwt.encode(
+        {"sub": str(user_id), "purpose": "reset", "exp": expire},
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+
+def verify_password_reset_token(token: str) -> Optional[str]:
+    """Return the user id if the token is a valid, unexpired reset token, else None."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        return None
+    if payload.get("purpose") != "reset":
+        return None
+    return payload.get("sub")
+
+
 def get_current_user(
     request: Request,
     token: Optional[str] = Depends(oauth2_scheme),

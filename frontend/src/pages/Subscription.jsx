@@ -94,6 +94,17 @@ export default function Subscription() {
     return <AppLayout title="Subscription"><SkeletonBlock className="panel skeleton-table" /></AppLayout>;
   }
 
+  if (!sub) {
+    return (
+      <AppLayout title="Subscription" subtitle="Manage your plan and billing. Cancel anytime.">
+        <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
+          <p>Couldn't load your subscription. Make sure the server is running, then reload.</p>
+          <button className="btn btn-primary" onClick={() => { setLoading(true); load(); }}>Retry</button>
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout title="Subscription" subtitle="Manage your plan and billing. Cancel anytime.">
       <StatusBanner sub={sub} trialDays={trialDays} onCancel={cancel} busy={busy} />

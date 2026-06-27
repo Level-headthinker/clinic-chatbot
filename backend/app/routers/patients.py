@@ -124,6 +124,8 @@ def list_patients(
             "chronic_conditions": p.chronic_conditions,
             "emergency_contact": p.emergency_contact,
             "total_visits": visit_counts.get(p.id, 0),
+            "booking_count": p.booking_count or 0,
+            "last_booking_at": str(p.last_booking_at) if p.last_booking_at else None,
             "created_at": str(p.created_at)
         }
         for p in patients

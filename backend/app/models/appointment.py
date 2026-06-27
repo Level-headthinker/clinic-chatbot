@@ -17,6 +17,9 @@ class Appointment(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True, index=True)
     doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=False)
+    # Links the booking to the patient record it created/matched (returning-patient
+    # tracking). Nullable for legacy rows booked before this existed.
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=True, index=True)
     patient_name = Column(String(255), nullable=False)
     patient_phone = Column(String(50), nullable=False)  # primary = verified WhatsApp number
     # Set only when the patient gives a DIFFERENT number for the booking

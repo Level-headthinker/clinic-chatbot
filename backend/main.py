@@ -305,6 +305,17 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS visit_id UUID REFERENCES visit_records(id)",
             "follow_ups.visit_id")
+        # Returning-patient tracking: count agent bookings per patient + link
+        # each appointment to the patient record it created/matched.
+        _run_sql(conn,
+            "ALTER TABLE patients ADD COLUMN IF NOT EXISTS booking_count INTEGER NOT NULL DEFAULT 0",
+            "patients.booking_count")
+        _run_sql(conn,
+            "ALTER TABLE patients ADD COLUMN IF NOT EXISTS last_booking_at TIMESTAMPTZ",
+            "patients.last_booking_at")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_id UUID REFERENCES patients(id)",
+            "appointments.patient_id")
         print("✅ Migrations complete")
 
 

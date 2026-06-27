@@ -265,6 +265,65 @@ def detect_alternate_phone(primary_phone: str, message: str):
     return None
 
 
+def _name_matches(a: str, b: str, threshold: int = 85) -> bool:
+    """True if two names are the same person (case/spacing/spelling tolerant).
+    Used to decide reuse-vs-new when the same number books again."""
+    a = (a or "").strip().lower()
+    b = (b or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    try:
+        from rapidfuzz import fuzz
+        return fuzz.token_sort_ratio(a, b) >= threshold
+    except Exception:
+        return a == b
+
+
+def upsert_patient_for_booking(db, tenant_id, branch_id, name, phone):
+    """Find-or-create the Patient record for a booking.
+
+    - Same number + matching name  → reuse that patient (a returning patient);
+      bump booking_count so the repeat booking is visible.
+    - Same number + DIFFERENT name → create a NEW patient (e.g. a family member
+      booking from the same WhatsApp number) — never overwrite the first person.
+    - New number                   → create a new patient.
+
+    Returns ``(patient, is_returning)``.
+    """
+    from datetime import timezone
+    local = _last10(phone)
+    candidates = []
+    if local:
+        candidates = db.query(Patient).filter(
+            Patient.tenant_id == tenant_id,
+            Patient.is_active == True,
+            Patient.phone.ilike(f"%{local}"),
+        ).all()
+        # ilike suffix can over-match (e.g. shared prefixes) — confirm last-10.
+        candidates = [p for p in candidates if _last10(p.phone) == local]
+
+    match = next((p for p in candidates if _name_matches(p.name, name)), None)
+    now = datetime.now(timezone.utc)
+    if match:
+        match.booking_count = (match.booking_count or 0) + 1
+        match.last_booking_at = now
+        return match, True
+
+    patient = Patient(
+        tenant_id=tenant_id,
+        primary_branch_id=branch_id,
+        name=name,
+        phone=_format_pk_phone(phone),
+        booking_count=1,
+        last_booking_at=now,
+    )
+    db.add(patient)
+    db.flush()
+    return patient, False
+
+
 def concern_from_session(session):
     for msg in reversed(session.messages or []):
         content = msg.get("content", "").strip()
@@ -305,8 +364,15 @@ def try_save_appointment(session, tenant_id, branch_id, db, doctors, search_text
         return None, None, None, "no_slots"
     doctor = options[0]["doctor"]
     slot = options[0]["slots"][0]
+    # Create/update the patient record (returning-patient aware) and link the
+    # appointment to it, so every booking lands in the Patients list and a repeat
+    # patient's booking_count goes up instead of silently duplicating.
+    patient, _returning = upsert_patient_for_booking(
+        db, tenant_id, branch_id, session.patient_name, session.patient_phone
+    )
     appointment = Appointment(
         tenant_id=tenant_id, branch_id=branch_id, doctor_id=doctor.id,
+        patient_id=patient.id,
         patient_name=session.patient_name, patient_phone=session.patient_phone,
         alternate_phone=session.alternate_phone,
         patient_concern=concern_from_session(session), slot_datetime=slot, status="pending"
@@ -365,19 +431,29 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
             session.alternate_phone = alt
 
     # ── Returning-patient lookup ─────────────────────────────
+    # Match on the last 10 digits so 0300…, 92300…, +92 300… all resolve to the
+    # same person regardless of how the number was stored.
     is_returning = False
     visit_count = 0
     if session.patient_phone:
+        local = _last10(session.patient_phone)
         prev = db.query(Appointment).filter(
+            Appointment.patient_phone.ilike(f"%{local}") if local else
             Appointment.patient_phone == session.patient_phone,
             Appointment.tenant_id == tenant.id
         ).count()
         existing_patient = db.query(Patient).filter(
+            Patient.tenant_id == tenant.id,
+            Patient.is_active == True,
+            Patient.phone.ilike(f"%{local}") if local else
             Patient.phone == session.patient_phone,
-            Patient.tenant_id == tenant.id
         ).first()
         is_returning = prev > 0 or existing_patient is not None
-        visit_count = prev
+        # Prefer the patient's tracked booking count; fall back to appointment count.
+        visit_count = (existing_patient.booking_count if existing_patient and existing_patient.booking_count
+                       else prev)
+        # Remember the name only if the patient hasn't given one THIS conversation
+        # (a new name stated now wins → it may be a different family member).
         if existing_patient and not session.patient_name:
             session.patient_name = existing_patient.name
 

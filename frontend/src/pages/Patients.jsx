@@ -146,6 +146,12 @@ export default function Patients() {
                     <div className="profile-left">
                       <span className="avatar-sm">{patient.name.charAt(0).toUpperCase()}</span>
                       <strong>{patient.name}</strong>
+                      {patient.booking_count > 1 && (
+                        <span className="badge badge-success" style={{ marginLeft: 8, fontSize: 10 }}
+                          title={`Booked ${patient.booking_count} times via the assistant`}>
+                          Returning ×{patient.booking_count}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td data-label="Phone">{patient.phone}</td>

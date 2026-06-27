@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, MessageSquare, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, MessageSquare, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -28,6 +28,11 @@ export default function PatientDetail() {
   const [showVisitForm, setShowVisitForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [visitForm, setVisitForm] = useState(initialVisitForm);
+
+  // Edit patient info
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState(null);
   const [medInput, setMedInput] = useState({ medicine: "", dosage: "", frequency: "", duration: "", notes: "" });
 
   // Prescriptions state
@@ -246,6 +251,37 @@ export default function PatientDetail() {
     } catch { notify("Failed to delete patient.", "error"); }
   };
 
+  const openEdit = () => {
+    setEditForm({
+      name: patient.name || "",
+      age: patient.age ?? "",
+      gender: patient.gender || "",
+      blood_group: patient.blood_group || "",
+      allergies: patient.allergies || "",
+      chronic_conditions: patient.chronic_conditions || "",
+      emergency_contact: patient.emergency_contact || "",
+    });
+    setShowEditForm(true);
+  };
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    setSavingEdit(true);
+    try {
+      await api.put(`/patients/${id}`, {
+        ...editForm,
+        age: editForm.age === "" ? null : parseInt(editForm.age),
+      });
+      notify("Patient details updated.", "success");
+      setShowEditForm(false);
+      fetchPatient();
+    } catch (err) {
+      notify(err?.response?.data?.detail || "Failed to update patient.", "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   if (loading) {
     return (
       <AppLayout title="Patient record" subtitle="Loading patient profile...">
@@ -275,6 +311,10 @@ export default function PatientDetail() {
           <button className="btn btn-primary" onClick={() => setShowVisitForm(true)}>
             <Plus size={16} />
             Add visit
+          </button>
+          <button className="btn btn-secondary" onClick={openEdit}>
+            <Pencil size={16} />
+            Edit
           </button>
           <button className="btn btn-danger" onClick={deletePatient}>
             <Trash2 size={16} />
@@ -627,6 +667,52 @@ export default function PatientDetail() {
           </div>
         )}
       </section>
+
+      {showEditForm && editForm && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div className="modal-header">
+              <div>
+                <h2>Edit patient details</h2>
+                <p>{patient.phone} <span className="muted">· phone can't be changed</span></p>
+              </div>
+              <button className="icon-btn" onClick={() => setShowEditForm(false)}><X size={16} /></button>
+            </div>
+            <form onSubmit={saveEdit}>
+              <div className="modal-body form-stack">
+                <div className="form-grid">
+                  <input className="input" placeholder="Full name" value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} required />
+                  <input className="input" type="number" placeholder="Age" value={editForm.age}
+                    onChange={(e) => setEditForm({ ...editForm, age: e.target.value })} />
+                  <select className="select" value={editForm.gender}
+                    onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}>
+                    <option value="">Select gender</option>
+                    <option>Male</option>
+                    <option>Female</option>
+                    <option>Other</option>
+                  </select>
+                  <select className="select" value={editForm.blood_group}
+                    onChange={(e) => setEditForm({ ...editForm, blood_group: e.target.value })}>
+                    <option value="">Blood group</option>
+                    {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((g) => <option key={g}>{g}</option>)}
+                  </select>
+                  <input className="input" placeholder="Emergency contact" value={editForm.emergency_contact}
+                    onChange={(e) => setEditForm({ ...editForm, emergency_contact: e.target.value })} />
+                </div>
+                <input className="input" placeholder="Allergies" value={editForm.allergies}
+                  onChange={(e) => setEditForm({ ...editForm, allergies: e.target.value })} />
+                <input className="input" placeholder="Chronic conditions" value={editForm.chronic_conditions}
+                  onChange={(e) => setEditForm({ ...editForm, chronic_conditions: e.target.value })} />
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-primary" type="submit" disabled={savingEdit}>{savingEdit ? "Saving..." : "Save changes"}</button>
+                <button className="btn btn-secondary" type="button" onClick={() => setShowEditForm(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showVisitForm && (
         <div className="modal-overlay">

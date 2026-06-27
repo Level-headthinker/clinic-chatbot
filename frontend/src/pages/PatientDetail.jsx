@@ -235,6 +235,17 @@ export default function PatientDetail() {
     } catch { notify("Failed.", "error"); }
   };
 
+  const deletePatient = async () => {
+    if (!window.confirm(
+      `Delete ${patient.name}? They'll move to Data & Privacy → Recently deleted, where you can restore them.`
+    )) return;
+    try {
+      await api.delete(`/patients/${id}`);
+      notify(`${patient.name} moved to trash.`, "success");
+      navigate("/patients");
+    } catch { notify("Failed to delete patient.", "error"); }
+  };
+
   if (loading) {
     return (
       <AppLayout title="Patient record" subtitle="Loading patient profile...">
@@ -264,6 +275,10 @@ export default function PatientDetail() {
           <button className="btn btn-primary" onClick={() => setShowVisitForm(true)}>
             <Plus size={16} />
             Add visit
+          </button>
+          <button className="btn btn-danger" onClick={deletePatient}>
+            <Trash2 size={16} />
+            Delete
           </button>
         </>
       }

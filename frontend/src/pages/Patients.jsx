@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -57,6 +57,19 @@ export default function Patients() {
       fetchPatients();
     } catch (err) {
       notify(err.response?.data?.detail || "Failed to add patient.", "error");
+    }
+  };
+
+  const deletePatient = async (patient) => {
+    if (!window.confirm(
+      `Delete ${patient.name}? They'll move to Data & Privacy → Recently deleted, where you can restore them.`
+    )) return;
+    try {
+      await api.delete(`/patients/${patient.id}`);
+      notify(`${patient.name} moved to trash.`, "success");
+      setPatients((rows) => rows.filter((p) => p.id !== patient.id));
+    } catch {
+      notify("Failed to delete patient.", "error");
     }
   };
 
@@ -142,7 +155,12 @@ export default function Patients() {
                   <td data-label="Conditions">{patient.chronic_conditions ? `${patient.chronic_conditions.slice(0, 34)}...` : "-"}</td>
                   <td data-label="Visits"><span className="badge">{patient.total_visits} visits</span></td>
                   <td data-label="Action">
-                    <button className="btn btn-secondary" onClick={() => navigate(`/patients/${patient.id}`)}>View record</button>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <button className="btn btn-secondary" onClick={() => navigate(`/patients/${patient.id}`)}>View record</button>
+                      <button className="btn btn-danger" title="Delete patient" onClick={() => deletePatient(patient)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

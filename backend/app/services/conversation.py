@@ -190,8 +190,45 @@ def find_booking_options(doctors, tenant_id, db, search_text, max_doctors=2):
     return options[:max_doctors]
 
 
-def format_slot(slot):
-    return slot.strftime("%A, %d %B %Y at %I:%M %p")
+_SPEECH_MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def format_slot(slot, spoken: bool = False):
+    if not spoken:
+        return slot.strftime("%A, %d %B %Y at %I:%M %p")
+    # Speech-friendly: no zero-padding (TTS reads "09" as "zero nine"), drop the
+    # year, and say ":00" times as the bare hour ("9 AM", not "09:00 AM").
+    hour = slot.hour % 12 or 12
+    ampm = "AM" if slot.hour < 12 else "PM"
+    time_str = f"{hour} {ampm}" if slot.minute == 0 else f"{hour}:{slot.minute:02d} {ampm}"
+    return f"{slot.strftime('%A')}, {slot.day} {slot.strftime('%B')} at {time_str}"
+
+
+def normalize_for_speech(text: str) -> str:
+    """Rewrite dates/times in a reply so a TTS voice reads them naturally.
+    Applied only on the voice path — catches times/dates the LLM itself wrote."""
+    if not text:
+        return text
+
+    # ISO date 2026-06-27 → "27 June 2026"
+    def _iso(m):
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return f"{d} {_SPEECH_MONTHS[mo - 1]} {y}" if 1 <= mo <= 12 else m.group(0)
+    text = re.sub(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", _iso, text)
+
+    # 12-hour time "09:00 AM" → "9 AM"; "09:30 PM" → "9:30 PM"
+    def _t12(m):
+        h, mm = int(m.group(1)), int(m.group(2))
+        ap = m.group(3).upper().replace(".", "")
+        return f"{h} {ap}" if mm == 0 else f"{h}:{mm:02d} {ap}"
+    text = re.sub(r"\b(\d{1,2}):(\d{2})\s*([AaPp]\.?[Mm]\.?)\b", _t12, text)
+
+    # 24-hour time with a leading zero "09:30" → "9:30"
+    text = re.sub(r"\b0(\d):([0-5]\d)\b", lambda m: f"{int(m.group(1))}:{m.group(2)}", text)
+    return text
 
 
 def is_confirmation_message(message):
@@ -201,23 +238,24 @@ def is_confirmation_message(message):
     return bool(_CONFIRMATION_RE.search(msg))
 
 
-def booking_suggestion_reply(options, language):
+def booking_suggestion_reply(options, language, spoken: bool = False):
     if not options:
         return ("Filhal koi available slot nahi mil raha. Clinic se direct contact kar lein."
                 if language in ["ur", "ur-roman"] else
                 "I could not find an available slot right now. Please contact the clinic directly.")
-    lines = [f"{display_doctor_name(o['doctor'])}: {format_slot(o['slots'][0])}" for o in options]
+    lines = [f"{display_doctor_name(o['doctor'])}: {format_slot(o['slots'][0], spoken=spoken)}" for o in options]
     if language in ["ur", "ur-roman"]:
         return "Available slot: " + " | ".join(lines) + ". Pehla slot confirm karne ke liye yes reply kar dein."
     return "Available slot: " + " | ".join(lines) + ". Reply yes to confirm the first slot."
 
 
-def appointment_confirmation_reply(doctor, slot, language):
+def appointment_confirmation_reply(doctor, slot, language, spoken: bool = False):
+    slot_str = format_slot(slot, spoken=spoken)
     if language in ["ur", "ur-roman"]:
         return (f"Done, appointment request {display_doctor_name(doctor)} ke sath "
-                f"{format_slot(slot)} ke liye save ho gayi hai. Clinic staff confirmation ke liye contact karega.")
+                f"{slot_str} ke liye save ho gayi hai. Clinic staff confirmation ke liye contact karega.")
     return (f"Done, your appointment request with {display_doctor_name(doctor)} "
-            f"for {format_slot(slot)} has been saved. The clinic staff will contact you to confirm.")
+            f"for {slot_str} has been saved. The clinic staff will contact you to confirm.")
 
 
 def appointment_error_reply(reason, language):
@@ -548,12 +586,13 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
 
     new_lead = try_save_lead(session, tenant.id, branch.id, db)
 
+    spoken = modality == "voice"
     booking_text = build_booking_search_text(session, clean_message)
     if (intent == "book_appointment" and not user_confirmed
             and session.patient_name and session.patient_phone
             and not is_emergency(clean_message)):
         options = find_booking_options(doctors, tenant.id, db, booking_text)
-        ai_reply = f"{ai_reply}\n\n{booking_suggestion_reply(options, language)}"
+        ai_reply = f"{ai_reply}\n\n{booking_suggestion_reply(options, language, spoken=spoken)}"
 
     appointment, doctor, slot = None, None, None
     if user_confirmed and intent == "book_appointment" and not is_emergency(clean_message):
@@ -562,7 +601,7 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
             doctors=doctors, search_text=booking_text
         )
         if appointment and doctor and slot:
-            ai_reply = appointment_confirmation_reply(doctor, slot, language)
+            ai_reply = appointment_confirmation_reply(doctor, slot, language, spoken=spoken)
             lead = db.query(Lead).filter(
                 Lead.phone == session.patient_phone, Lead.tenant_id == tenant.id
             ).first()
@@ -570,6 +609,11 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
                 lead.status = "converted"
         else:
             ai_reply = appointment_error_reply(error or "unknown", language)
+
+    # On the voice path, rewrite any remaining dates/times (incl. ones the LLM
+    # wrote itself) so the TTS voice reads them naturally.
+    if spoken:
+        ai_reply = normalize_for_speech(ai_reply)
 
     messages[-1] = {"role": "assistant", "content": ai_reply}
     session.messages = messages

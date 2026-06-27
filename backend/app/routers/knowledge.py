@@ -7,7 +7,7 @@ knowledge is never visible to another.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -16,8 +16,11 @@ from app.models.knowledge import KnowledgeEntry
 from app.models.user import User
 from app.services.auth import require_admin_user
 from app.services.knowledge_retrieval import retrieve_knowledge
+from app.services import knowledge_ingest as ingest
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Base"])
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
 
 
 class KnowledgeIn(BaseModel):
@@ -25,6 +28,11 @@ class KnowledgeIn(BaseModel):
     answer: str = Field(min_length=2, max_length=4000)
     category: Optional[str] = Field(default=None, max_length=100)
     is_active: bool = True
+
+
+class UrlIn(BaseModel):
+    url: str = Field(min_length=4, max_length=2000)
+    category: Optional[str] = Field(default=None, max_length=100)
 
 
 def _fmt(e: KnowledgeEntry) -> dict:
@@ -35,6 +43,9 @@ def _fmt(e: KnowledgeEntry) -> dict:
         "category": e.category,
         "is_active": e.is_active,
         "created_at": str(e.created_at),
+        "source_type": e.source_type or "manual",
+        "source_name": e.source_name,
+        "source_ref": str(e.source_ref) if e.source_ref else None,
     }
 
 
@@ -67,6 +78,68 @@ def create_entry(
     db.commit()
     db.refresh(entry)
     return _fmt(entry)
+
+
+@router.post("/ingest/document", status_code=201)
+async def ingest_document(
+    file: UploadFile = File(...),
+    category: Optional[str] = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """Upload a PDF / DOCX / TXT — its text is extracted, chunked, and stored so
+    the bot can answer from it."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="The file is empty.")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB).")
+    try:
+        text = ingest.extract_text_from_file(file.filename, raw)
+        result = ingest.ingest_text(
+            db, tenant_id=current_user.tenant_id, branch_id=current_user.branch_id,
+            source_type="document", source_name=file.filename or "document",
+            text=text, category=(category or None),
+        )
+    except ingest.IngestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@router.post("/ingest/url", status_code=201)
+def ingest_url(
+    data: UrlIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """Read a public web page and store its text so the bot can answer from it."""
+    try:
+        title, text = ingest.extract_text_from_url(data.url.strip())
+        result = ingest.ingest_text(
+            db, tenant_id=current_user.tenant_id, branch_id=current_user.branch_id,
+            source_type="web", source_name=title or data.url.strip(),
+            text=text, category=(data.category or None),
+        )
+    except ingest.IngestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@router.delete("/source/{source_ref}", status_code=200)
+def delete_source(
+    source_ref: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """Remove every chunk that came from one uploaded document / web page."""
+    deleted = db.query(KnowledgeEntry).filter(
+        KnowledgeEntry.tenant_id == current_user.tenant_id,
+        KnowledgeEntry.source_ref == source_ref,
+    ).delete(synchronize_session=False)
+    db.commit()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return {"deleted": deleted}
 
 
 def _get_owned(entry_id: str, current_user: User, db: Session) -> KnowledgeEntry:

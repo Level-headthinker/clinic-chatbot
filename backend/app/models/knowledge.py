@@ -19,5 +19,9 @@ class KnowledgeEntry(Base):
     answer = Column(Text, nullable=False)            # the answer the bot should use
     category = Column(String(100))                   # optional grouping (e.g. "Pricing", "Pre-care")
     is_active = Column(Boolean, default=True, nullable=False, server_default="true")
+    # Provenance: manual Q&A vs. a chunk extracted from an uploaded doc / web page.
+    source_type = Column(String(20), nullable=False, server_default="manual")  # manual | document | web
+    source_name = Column(String(500))                # filename or URL the chunk came from
+    source_ref = Column(UUID(as_uuid=True), index=True)  # groups all chunks from one ingest
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

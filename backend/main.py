@@ -279,6 +279,19 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE patients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
             "patients.deleted_at")
+        # Knowledge base — provenance for uploaded documents / web pages.
+        _run_sql(conn,
+            "ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source_type VARCHAR(20) NOT NULL DEFAULT 'manual'",
+            "knowledge_base.source_type")
+        _run_sql(conn,
+            "ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source_name VARCHAR(500)",
+            "knowledge_base.source_name")
+        _run_sql(conn,
+            "ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source_ref UUID",
+            "knowledge_base.source_ref")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_kb_source_ref ON knowledge_base (source_ref)",
+            "index knowledge_base.source_ref")
         print("✅ Migrations complete")
 
 
@@ -325,10 +338,20 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    # Most requests are tiny JSON; cap them at 1MB. Document uploads to the
+    # knowledge base are the one exception — allow up to 10MB there.
+    DEFAULT_LIMIT = 1_048_576        # 1MB
+    UPLOAD_LIMIT = 10_485_760        # 10MB
+    UPLOAD_PATHS = ("/knowledge/ingest/document",)
+
     async def dispatch(self, request, call_next):
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > 1_048_576:  # 1MB
-            return StarletteResponse("Request too large", status_code=413)
+        if content_length:
+            limit = (self.UPLOAD_LIMIT
+                     if any(request.url.path.startswith(p) for p in self.UPLOAD_PATHS)
+                     else self.DEFAULT_LIMIT)
+            if int(content_length) > limit:
+                return StarletteResponse("Request too large", status_code=413)
         return await call_next(request)
 
 app.add_middleware(MaxBodySizeMiddleware)

@@ -112,6 +112,20 @@ def _expire_subscriptions():
         db.close()
 
 
+def _run_reminder_agent():
+    """Daily: message patients before their next visit and nudge un-booked leads."""
+    from app.services.reminder_agent import run_reminders
+    db = SessionLocal()
+    try:
+        res = run_reminders(db)
+        if res.get("created"):
+            print(f"🔔 reminder agent: {res}")
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _weekly_reports():
     from app.services.reports import generate_scheduled_reports
     generate_scheduled_reports("weekly")
@@ -138,6 +152,9 @@ def start_scheduler():
         # Expire ended trials/subscriptions — hourly is plenty.
         _scheduler.add_job(_expire_subscriptions, "interval",
                            hours=1, id="expire_subscriptions")
+        # Automatic follow-up reminders — once a day at 10:00 (PKT).
+        _scheduler.add_job(_run_reminder_agent, "cron",
+                           hour=10, minute=0, id="reminder_agent")
         _scheduler.start()
 
 

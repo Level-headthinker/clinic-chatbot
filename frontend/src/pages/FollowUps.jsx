@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle, Clock, Plus, Trash2 } from "lucide-react";
+import { CheckCircle, Clock, Plus, Trash2, Send, CalendarClock, UserPlus, Sparkles } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import EmptyState from "../components/EmptyState";
@@ -7,6 +7,23 @@ import { SkeletonBlock } from "../components/Skeleton";
 import { useToast } from "../context/ToastContext";
 
 const STATUSES = ["pending", "done", "cancelled"];
+
+const KIND_META = {
+  next_visit: { label: "Next-visit reminder", icon: CalendarClock, color: "#06b6d4" },
+  lead_nudge: { label: "Lead nudge", icon: UserPlus, color: "#8b5cf6" },
+  manual: { label: "Manual", icon: null, color: "var(--muted)" },
+};
+
+function KindBadge({ kind }) {
+  const m = KIND_META[kind] || KIND_META.manual;
+  const Icon = m.icon;
+  return (
+    <span className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 4, background: `${m.color}1a`, color: m.color }}>
+      {Icon && <Icon size={11} />}
+      {m.label}
+    </span>
+  );
+}
 
 const emptyForm = {
   title: "",
@@ -32,6 +49,7 @@ export default function FollowUps() {
   const [filterStatus, setFilterStatus] = useState("pending");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [running, setRunning] = useState(false);
   const { notify } = useToast();
 
   const fetchItems = useCallback(async () => {
@@ -71,6 +89,24 @@ export default function FollowUps() {
     }
   };
 
+  const runReminders = async () => {
+    setRunning(true);
+    try {
+      const res = await api.post("/follow-ups/run-reminders");
+      const d = res.data || {};
+      if (d.enabled === false) {
+        notify("Automatic reminders are turned off.", "info");
+      } else {
+        notify(`Reminder agent ran: ${d.created || 0} created, ${d.sent || 0} sent.`, "success");
+      }
+      fetchItems();
+    } catch {
+      notify("Failed to run reminders.", "error");
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const markDone = async (id) => {
     try {
       await api.patch(`/follow-ups/${id}/done`);
@@ -100,12 +136,35 @@ export default function FollowUps() {
       title="Follow-ups"
       subtitle="Track tasks, reminders, and patient follow-up actions."
       actions={
-        <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>
-          <Plus size={16} />
-          {showForm ? "Close" : "New follow-up"}
-        </button>
+        <>
+          <button className="btn btn-secondary" onClick={runReminders} disabled={running}>
+            <Send size={16} style={running ? { animation: "spin 1s linear infinite" } : {}} />
+            {running ? "Running…" : "Run reminders now"}
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>
+            <Plus size={16} />
+            {showForm ? "Close" : "New follow-up"}
+          </button>
+        </>
       }
     >
+      {/* Automatic reminders explainer */}
+      <div className="panel" style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 16px", marginBottom: 16 }}>
+        <span style={{
+          flexShrink: 0, width: 36, height: 36, borderRadius: 8, display: "grid", placeItems: "center",
+          background: "var(--primary-soft, rgba(13,148,136,.1))",
+        }}>
+          <Sparkles size={18} style={{ color: "var(--primary)" }} />
+        </span>
+        <div>
+          <strong style={{ fontSize: 14 }}>Automatic reminders are on</strong>
+          <p style={{ margin: "3px 0 0", fontSize: 13, color: "var(--muted)" }}>
+            Each day the assistant messages patients before their next-visit date and gently
+            nudges leads who enquired but didn't book — and logs each one here. Use
+            <strong> Run reminders now</strong> to do it immediately.
+          </p>
+        </div>
+      </div>
       {showForm && (
         <section className="form-panel">
           <h2>New follow-up</h2>
@@ -201,7 +260,7 @@ export default function FollowUps() {
           <table className="responsive-table">
             <thead>
               <tr>
-                {["Title", "Due date", "Status", "Notes", "Actions"].map((h) => (
+                {["Title", "Type", "Due date", "Status", "Message", "Actions"].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -215,14 +274,25 @@ export default function FollowUps() {
                       <span className="badge badge-danger" style={{ marginLeft: 6, fontSize: 10 }}>overdue</span>
                     )}
                   </td>
+                  <td data-label="Type"><KindBadge kind={item.kind} /></td>
                   <td data-label="Due date">
                     {new Date(item.due_date).toLocaleString()}
                   </td>
                   <td data-label="Status">
                     <span className={`badge ${statusBadge(item.status)}`}>{item.status}</span>
                   </td>
-                  <td data-label="Notes" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {item.notes || "—"}
+                  <td data-label="Message">
+                    {item.kind === "manual" ? (
+                      <span style={{ color: "var(--muted)" }}>—</span>
+                    ) : item.reminder_sent_at ? (
+                      <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <CheckCircle size={11} /> Sent
+                      </span>
+                    ) : (
+                      <span className="badge badge-warning" title="Could not auto-send (likely outside WhatsApp's 24h window) — reach out manually">
+                        Not sent
+                      </span>
+                    )}
                   </td>
                   <td data-label="Actions">
                     <div className="action-row" style={{ justifyContent: "flex-end" }}>

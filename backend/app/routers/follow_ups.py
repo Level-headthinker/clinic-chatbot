@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.follow_up import FollowUp
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import get_current_user, require_admin_user
 
 router = APIRouter(prefix="/follow-ups", tags=["Follow-ups"])
 
@@ -35,6 +35,9 @@ class FollowUpResponse(BaseModel):
     notes: Optional[str]
     due_date: datetime
     status: str
+    kind: str = "manual"
+    channel: Optional[str] = None
+    reminder_sent_at: Optional[datetime] = None
     patient_id: Optional[str]
     lead_id: Optional[str]
     assigned_to: Optional[str]
@@ -51,6 +54,9 @@ def _fmt(f: FollowUp) -> FollowUpResponse:
         notes=f.notes,
         due_date=f.due_date,
         status=f.status,
+        kind=f.kind or "manual",
+        channel=f.channel,
+        reminder_sent_at=f.reminder_sent_at,
         patient_id=str(f.patient_id) if f.patient_id else None,
         lead_id=str(f.lead_id) if f.lead_id else None,
         assigned_to=str(f.assigned_to) if f.assigned_to else None,
@@ -137,6 +143,17 @@ def mark_done(
     db.commit()
     db.refresh(fu)
     return _fmt(fu)
+
+
+@router.post("/run-reminders")
+def run_reminders_now(
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Trigger the automatic reminder agent immediately (it also runs daily).
+    Messages patients before their next visit and nudges un-booked leads."""
+    from app.services.reminder_agent import run_reminders
+    return run_reminders(db)
 
 
 @router.delete("/{fu_id}", status_code=status.HTTP_204_NO_CONTENT)

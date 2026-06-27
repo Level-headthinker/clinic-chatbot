@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     # /voice/vapi-server and /voice/vapi-llm endpoints. Blank = endpoints closed.
     VAPI_SERVER_SECRET: str = ""
 
+    # ── Automated reminders (the "follow-up agent") ────────────
+    # A daily job messages patients before their next visit and nudges leads who
+    # enquired but never booked — turning follow-ups into automatic outreach.
+    AUTO_REMINDERS_ENABLED: bool = True
+    NEXT_VISIT_REMINDER_DAYS_BEFORE: int = 1   # remind this many days before a next-visit date
+    LEAD_NUDGE_AFTER_DAYS: int = 2             # nudge an un-booked lead this many days after it came in
+    LEAD_NUDGE_MAX_AGE_DAYS: int = 30         # don't nudge leads older than this (avoid spamming history)
+
     # ── Billing / subscriptions ────────────────────────────────
     # Public base URL of the frontend (for checkout success/cancel redirects).
     APP_BASE_URL: str = "http://localhost:3000"

@@ -292,6 +292,19 @@ def _add_missing_columns():
         _run_sql(conn,
             "CREATE INDEX IF NOT EXISTS ix_kb_source_ref ON knowledge_base (source_ref)",
             "index knowledge_base.source_ref")
+        # Follow-ups — automatic reminder agent fields.
+        _run_sql(conn,
+            "ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS kind VARCHAR(20) NOT NULL DEFAULT 'manual'",
+            "follow_ups.kind")
+        _run_sql(conn,
+            "ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS channel VARCHAR(20)",
+            "follow_ups.channel")
+        _run_sql(conn,
+            "ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ",
+            "follow_ups.reminder_sent_at")
+        _run_sql(conn,
+            "ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS visit_id UUID REFERENCES visit_records(id)",
+            "follow_ups.visit_id")
         print("✅ Migrations complete")
 
 

@@ -17,7 +17,8 @@ from app.models.appointment import Appointment
 from app.models.branch import Branch
 from app.models.doctor import Doctor
 from app.models.tenant import Tenant
-from app.services.messaging import send_whatsapp
+from app.config import settings
+from app.services.messaging import send_whatsapp, send_whatsapp_template
 
 _scheduler = BackgroundScheduler(timezone="Asia/Karachi")
 
@@ -58,7 +59,20 @@ def _send_reminders():
                     f"To reschedule, reply to this message or call us directly."
                 )
 
-                sent = send_whatsapp(appt.patient_phone, message)
+                # Prefer an approved template (delivers outside the 24h window),
+                # fall back to free-form text (delivers within it).
+                sent = False
+                if settings.WA_TEMPLATE_APPT_REMINDER:
+                    try:
+                        sent = send_whatsapp_template(
+                            appt.patient_phone, settings.WA_TEMPLATE_APPT_REMINDER,
+                            settings.WA_TEMPLATE_LANG,
+                            [appt.patient_name, clinic_name, doctor_name, slot_str],
+                        )
+                    except Exception:
+                        sent = False
+                if not sent:
+                    sent = send_whatsapp(appt.patient_phone, message)
                 if sent:
                     appt.reminder_sent = True
                     db.commit()

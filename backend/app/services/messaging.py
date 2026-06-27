@@ -65,6 +65,57 @@ def send_whatsapp(to: str, body: str) -> bool:
     return True
 
 
+def send_whatsapp_template(to: str, template_name: str, language_code: str,
+                           body_params: list) -> bool:
+    """Send a pre-approved WhatsApp template message via Meta Cloud API.
+
+    Unlike free-form text, templates deliver OUTSIDE the 24-hour customer-service
+    window — which is what makes proactive reminders/nudges actually arrive.
+    ``body_params`` fills the template's {{1}}, {{2}}, … placeholders in order.
+
+    Returns True on success, False if Meta creds / template name are missing.
+    Raises RuntimeError if the API call fails.
+    """
+    if not settings.META_PHONE_NUMBER_ID or not settings.META_ACCESS_TOKEN:
+        return False
+    if not template_name:
+        return False
+
+    to_number = _normalize_phone(to)
+    url = f"{META_API_BASE}/{settings.META_PHONE_NUMBER_ID}/messages"
+    # Meta rejects empty text parameters — coerce each to a non-empty string.
+    parameters = [{"type": "text", "text": (str(p).strip() or "-")} for p in body_params]
+
+    components = []
+    if parameters:
+        components.append({"type": "body", "parameters": parameters})
+
+    resp = httpx.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {settings.META_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "messaging_product": "whatsapp",
+            "to": to_number,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language_code or "en"},
+                "components": components,
+            },
+        },
+        timeout=10,
+    )
+
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(
+            f"Meta API error {resp.status_code}: {resp.text[:200]}"
+        )
+    return True
+
+
 # ── SMS via Twilio (optional) ─────────────────────────────────────────────────
 
 def send_sms(to: str, body: str) -> bool:

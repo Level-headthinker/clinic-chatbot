@@ -37,3 +37,35 @@ class TestDoctorLabel:
 
     def test_none_stays_none(self):
         assert ra._doctor_label(None) is None
+
+
+class TestDeliver:
+    """_deliver must prefer the template, then fall back to free-form text."""
+
+    def test_template_used_first(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(ra, "send_whatsapp_template",
+                            lambda *a, **k: calls.append("tpl") or True)
+        monkeypatch.setattr(ra, "send_whatsapp",
+                            lambda *a, **k: calls.append("txt") or True)
+        ok = ra._deliver("923001234567", template_name="t", template_params=["a"], text="hi")
+        assert ok is True
+        assert calls == ["tpl"]            # text fallback never called
+
+    def test_falls_back_to_text_when_template_fails(self, monkeypatch):
+        calls = []
+        def boom(*a, **k):
+            calls.append("tpl"); raise RuntimeError("outside window")
+        monkeypatch.setattr(ra, "send_whatsapp_template", boom)
+        monkeypatch.setattr(ra, "send_whatsapp",
+                            lambda *a, **k: calls.append("txt") or True)
+        ok = ra._deliver("923001234567", template_name="t", template_params=["a"], text="hi")
+        assert ok is True
+        assert calls == ["tpl", "txt"]
+
+    def test_text_only_when_no_template(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(ra, "send_whatsapp",
+                            lambda *a, **k: calls.append("txt") or True)
+        ok = ra._deliver("923001234567", template_name="", text="hi")
+        assert ok is True and calls == ["txt"]

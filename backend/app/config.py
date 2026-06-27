@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     LEAD_NUDGE_AFTER_DAYS: int = 2             # nudge an un-booked lead this many days after it came in
     LEAD_NUDGE_MAX_AGE_DAYS: int = 30         # don't nudge leads older than this (avoid spamming history)
 
+    # WhatsApp message templates (pre-approved in Meta) — required to deliver
+    # reminders OUTSIDE the 24-hour window. Set each to your approved template's
+    # name; blank = fall back to free-form text (only delivers within 24h).
+    # See app/services/WHATSAPP_TEMPLATES.md for the expected body/parameters.
+    WA_TEMPLATE_LANG: str = "en"               # language code of your templates (e.g. en, en_US)
+    WA_TEMPLATE_NEXT_VISIT: str = ""           # params: {{1}} name {{2}} clinic {{3}} doctor {{4}} date
+    WA_TEMPLATE_LEAD_NUDGE: str = ""           # params: {{1}} name {{2}} clinic
+    WA_TEMPLATE_APPT_REMINDER: str = ""        # params: {{1}} name {{2}} clinic {{3}} doctor {{4}} datetime
+
     # ── Billing / subscriptions ────────────────────────────────
     # Public base URL of the frontend (for checkout success/cancel redirects).
     APP_BASE_URL: str = "http://localhost:3000"

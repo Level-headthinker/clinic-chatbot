@@ -32,7 +32,7 @@ from app.models.follow_up import FollowUp
 from app.models.patient import Patient
 from app.models.tenant import Tenant
 from app.models.visit import VisitRecord
-from app.services.messaging import send_whatsapp
+from app.services.messaging import send_whatsapp, send_whatsapp_template
 
 
 # ── Message builders (pure — unit tested) ────────────────────────────────────────
@@ -72,23 +72,39 @@ def _doctor_label(name: str | None) -> str | None:
     return name if name.lower().startswith("dr") else f"Dr. {name}"
 
 
+def _deliver(phone, *, template_name=None, template_params=None, text=None) -> bool:
+    """Send via WhatsApp, preferring an approved template (delivers outside the
+    24h window) and falling back to free-form text (delivers within it).
+    Returns True only if a message was actually accepted by Meta."""
+    if template_name:
+        try:
+            if send_whatsapp_template(phone, template_name, settings.WA_TEMPLATE_LANG,
+                                      template_params or []):
+                return True
+        except Exception:
+            pass  # template send failed — try free-form below
+    if text:
+        try:
+            return bool(send_whatsapp(phone, text))
+        except Exception:
+            return False
+    return False
+
+
 def _record_followup(db, *, tenant_id, branch_id, kind, title, notes, due_date,
                      patient_id=None, lead_id=None, visit_id=None,
-                     phone=None, message=None) -> bool:
+                     phone=None, message=None, template_name=None, template_params=None) -> bool:
     """Send the WhatsApp message (best-effort) and log the follow-up. Returns
     True if the message was actually delivered."""
     sent_at = None
     channel = None
     status = "pending"
-    if phone and message:
-        try:
-            if send_whatsapp(phone, message):     # False = WA not configured
-                sent_at = datetime.now(timezone.utc)
-                channel = "whatsapp"
-                status = "done"
-        except Exception:
-            # Delivery failed (e.g. outside 24h window) — keep as a pending task.
-            pass
+    if phone and (message or template_name):
+        if _deliver(phone, template_name=template_name,
+                    template_params=template_params, text=message):
+            sent_at = datetime.now(timezone.utc)
+            channel = "whatsapp"
+            status = "done"
 
     db.add(FollowUp(
         tenant_id=tenant_id,
@@ -144,6 +160,8 @@ def _next_visit_reminders(db) -> dict:
             notes=f"Auto reminder for the {date_str} visit.",
             due_date=due_dt, patient_id=patient.id, visit_id=v.id,
             phone=patient.phone, message=msg,
+            template_name=settings.WA_TEMPLATE_NEXT_VISIT,
+            template_params=[patient.name, clinic, doctor_label or "your doctor", date_str],
         )
         created += 1
         sent += 1 if delivered else 0
@@ -187,6 +205,8 @@ def _lead_nudges(db) -> dict:
             notes="Auto nudge: enquired but hasn't booked.",
             due_date=now, lead_id=lead.id,
             phone=lead.phone, message=msg,
+            template_name=settings.WA_TEMPLATE_LEAD_NUDGE,
+            template_params=[lead.name, clinic],
         )
         created += 1
         sent += 1 if delivered else 0

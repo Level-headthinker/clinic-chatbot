@@ -59,11 +59,16 @@ def analytics_overview(
     branches = db.query(Branch).filter(Branch.id.in_(branch_ids)).all()
     branch_map = {b.id: b.name for b in branches}
 
-    # ── Revenue per branch ─────────────────────────────────────────────────────
+    # ── Revenue per branch (collected = paid, billed = invoiced) ──────────────
     revenue_rows = (
-        db.query(Invoice.branch_id, func.coalesce(func.sum(Invoice.paid_amount), 0))
+        db.query(
+            Invoice.branch_id,
+            func.coalesce(func.sum(Invoice.paid_amount), 0),
+            func.coalesce(func.sum(Invoice.total_amount), 0),
+        )
         .filter(
             Invoice.branch_id.in_(branch_ids),
+            Invoice.is_active == True,        # exclude soft-deleted invoices
             Invoice.created_at >= from_dt,
             Invoice.created_at <= to_dt,
         )
@@ -71,6 +76,7 @@ def analytics_overview(
         .all()
     )
     revenue_by_branch = {str(r[0]): float(r[1]) for r in revenue_rows}
+    billed_by_branch = {str(r[0]): float(r[2]) for r in revenue_rows}
 
     # ── Appointments per branch (by status) ───────────────────────────────────
     appt_rows = (
@@ -81,6 +87,7 @@ def analytics_overview(
         )
         .filter(
             Appointment.branch_id.in_(branch_ids),
+            Appointment.is_active == True,    # exclude soft-deleted appointments
             Appointment.created_at >= from_dt,
             Appointment.created_at <= to_dt,
         )
@@ -98,6 +105,7 @@ def analytics_overview(
         db.query(Lead.branch_id, Lead.status, func.count(Lead.id))
         .filter(
             Lead.branch_id.in_(branch_ids),
+            Lead.is_active == True,           # exclude soft-deleted leads
             Lead.created_at >= from_dt,
             Lead.created_at <= to_dt,
         )
@@ -115,6 +123,7 @@ def analytics_overview(
         db.query(Patient.primary_branch_id, func.count(Patient.id))
         .filter(
             Patient.primary_branch_id.in_(branch_ids),
+            Patient.is_active == True,        # exclude soft-deleted patients
             Patient.created_at >= from_dt,
             Patient.created_at <= to_dt,
         )
@@ -131,6 +140,7 @@ def analytics_overview(
         )
         .filter(
             Invoice.branch_id.in_(branch_ids),
+            Invoice.is_active == True,
             Invoice.created_at >= from_dt,
             Invoice.created_at <= to_dt,
         )
@@ -150,6 +160,7 @@ def analytics_overview(
         )
         .filter(
             Lead.branch_id.in_(branch_ids),
+            Lead.is_active == True,
             Lead.created_at >= from_dt,
             Lead.created_at <= to_dt,
         )
@@ -172,30 +183,46 @@ def analytics_overview(
 
     # ── Assemble per-branch summary ────────────────────────────────────────────
     branch_summaries = []
-    total_revenue = 0.0
+    total_collected = 0.0
+    total_billed = 0.0
     total_patients = 0
     total_leads = 0
     total_converted = 0
+    total_appts = 0
+    total_completed = 0
+    total_no_show = 0
 
     for branch in branches:
         bid = str(branch.id)
         rev = revenue_by_branch.get(bid, 0.0)
+        billed = billed_by_branch.get(bid, 0.0)
         appts = appt_by_branch.get(bid, {})
         leads_data = leads_by_branch.get(bid, {"new": 0, "contacted": 0, "converted": 0, "lost": 0})
         patients = patients_by_branch.get(bid, 0)
 
         branch_leads = sum(leads_data.values())
         branch_converted = leads_data.get("converted", 0)
+        # Count every appointment, whatever its status (don't drop no_show etc.)
+        appts_total = sum(appts.values())
+        completed = appts.get("completed", 0)
+        no_show = appts.get("no_show", 0)
 
-        total_revenue += rev
+        total_collected += rev
+        total_billed += billed
         total_patients += patients
         total_leads += branch_leads
         total_converted += branch_converted
+        total_appts += appts_total
+        total_completed += completed
+        total_no_show += no_show
 
         branch_summaries.append({
             "branch_id": bid,
             "branch_name": branch.name,
-            "revenue": rev,
+            "revenue": rev,                      # collected (kept for compatibility)
+            "collected": rev,
+            "billed": billed,
+            "outstanding": max(billed - rev, 0),
             "patients": patients,
             "leads": branch_leads,
             "leads_converted": branch_converted,
@@ -203,23 +230,35 @@ def analytics_overview(
             "appointments": {
                 "pending": appts.get("pending", 0),
                 "confirmed": appts.get("confirmed", 0),
-                "completed": appts.get("completed", 0),
+                "checked_in": appts.get("checked_in", 0),
+                "in_progress": appts.get("in_progress", 0),
+                "completed": completed,
                 "cancelled": appts.get("cancelled", 0),
+                "no_show": no_show,
+                "total": appts_total,
             },
         })
 
-    # Sort by revenue descending
+    # Sort by revenue (collected) descending
     branch_summaries.sort(key=lambda x: x["revenue"], reverse=True)
 
     return {
         "from_date": str(from_date),
         "to_date": str(to_date),
         "totals": {
-            "revenue": total_revenue,
+            "revenue": total_collected,          # collected (kept for compatibility)
+            "collected": total_collected,
+            "billed": total_billed,
+            "outstanding": max(total_billed - total_collected, 0),
+            "collection_rate": round(total_collected / total_billed * 100) if total_billed else 0,
             "patients": total_patients,
             "leads": total_leads,
             "leads_converted": total_converted,
             "conversion_rate": round(total_converted / total_leads * 100) if total_leads else 0,
+            "appointments": total_appts,
+            "appointments_completed": total_completed,
+            "appointments_no_show": total_no_show,
+            "completion_rate": round(total_completed / total_appts * 100) if total_appts else 0,
         },
         "branches": branch_summaries,
         "trend": trend,

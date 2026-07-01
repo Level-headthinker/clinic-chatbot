@@ -28,6 +28,9 @@ class Tenant(Base):
     # captured at sign-up. Routing still uses the Meta phone_number_id on the
     # whatsapp_number_mappings row — this is for display + the connect screen.
     whatsapp_number = Column(String(32))
+    # Set when the clinic finishes or dismisses the getting-started wizard, so it
+    # stops showing. Step completion itself is derived live from the data.
+    onboarding_dismissed = Column(Boolean, default=False, nullable=False, server_default="false")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

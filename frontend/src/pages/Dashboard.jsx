@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Calendar, Clock, Plus, Stethoscope, TrendingUp, Users } from "lucide-react";
+import { AlertCircle, ArrowRight, Calendar, Clock, Plus, Rocket, Stethoscope, TrendingUp, Users } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
 import EmptyState from "../components/EmptyState";
@@ -53,6 +53,7 @@ export default function Dashboard() {
         <DashboardSkeleton />
       ) : (
         <>
+          <GettingStartedCard />
           <div className="metric-grid">
             <MetricCard
               icon={<Users size={22} />}
@@ -228,6 +229,54 @@ export default function Dashboard() {
         </>
       )}
     </AppLayout>
+  );
+}
+
+function GettingStartedCard() {
+  const [status, setStatus] = useState(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/onboarding/status")
+      .then((res) => { if (alive) setStatus(res.data); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Show only while there's still required setup left and it hasn't been dismissed.
+  if (!status || status.completed || status.dismissed) return null;
+
+  const pct = status.total_required
+    ? Math.round((status.completed_required / status.total_required) * 100)
+    : 0;
+
+  return (
+    <div
+      className="panel"
+      style={{
+        marginBottom: 16, padding: "16px 20px", cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 16,
+        border: "1px solid var(--primary)", background: "var(--primary-soft, rgba(13,148,136,.06))",
+      }}
+      onClick={() => navigate("/onboarding")}
+    >
+      <span style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 10, display: "grid", placeItems: "center", background: "var(--surface)" }}>
+        <Rocket size={20} style={{ color: "var(--primary)" }} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <strong style={{ fontSize: 15 }}>Finish setting up your clinic</strong>
+        <p style={{ margin: "3px 0 8px", fontSize: 13, color: "var(--muted)" }}>
+          {status.completed_required} of {status.total_required} essential steps done — a few more and your bot is live.
+        </p>
+        <div style={{ height: 6, borderRadius: 6, background: "var(--surface-2, #eee)", overflow: "hidden", maxWidth: 320 }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: "var(--primary)", borderRadius: 6 }} />
+        </div>
+      </div>
+      <button className="btn btn-primary" style={{ flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); navigate("/onboarding"); }}>
+        Continue <ArrowRight size={15} />
+      </button>
+    </div>
   );
 }
 

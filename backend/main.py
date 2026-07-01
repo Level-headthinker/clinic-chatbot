@@ -12,7 +12,7 @@ init_sentry()
 # Import all models so create_all sees them
 import app.models  # noqa — registers all models with Base.metadata for create_all
 
-from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations, knowledge, subscription, audit, export
+from app.routers import auth, chat, dashboard, doctors, appointments, leads, superadmin, patients, visits, billing, branches, users, follow_ups, prescriptions, notes, voice, analytics, whatsapp, booking, notifications, doctor_portal, services, rooms, treatment_sessions, reports, import_data, conversations, knowledge, subscription, audit, export, onboarding
 from app.routers import settings as settings_router
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -316,6 +316,9 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_id UUID REFERENCES patients(id)",
             "appointments.patient_id")
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS onboarding_dismissed BOOLEAN NOT NULL DEFAULT FALSE",
+            "tenants.onboarding_dismissed")
         print("✅ Migrations complete")
 
 
@@ -413,6 +416,7 @@ app.include_router(knowledge.router)
 app.include_router(subscription.router)
 app.include_router(audit.router)
 app.include_router(export.router)
+app.include_router(onboarding.router)
 
 
 @app.get("/")

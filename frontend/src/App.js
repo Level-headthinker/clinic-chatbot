@@ -28,6 +28,7 @@ import Conversations from "./pages/Conversations";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Subscription from "./pages/Subscription";
 import DataPrivacy from "./pages/DataPrivacy";
+import Onboarding from "./pages/Onboarding";
 import DoctorPortal from "./pages/DoctorPortal";
 import Landing from "./pages/Landing";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -168,6 +169,7 @@ export default function App() {
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/subscription" element={<ProtectedRoute><Subscription /></ProtectedRoute>} />
               <Route path="/data-privacy" element={<ProtectedRoute><DataPrivacy /></ProtectedRoute>} />
+              <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
               <Route path="/waiting-room" element={<ProtectedRoute><WaitingRoom /></ProtectedRoute>} />
               <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />

@@ -122,6 +122,35 @@ def activate(db, sub: Subscription, plan_key: str, *, gateway: str,
         tenant.plan = plan_key
     db.commit()
 
+    # Receipt email — best-effort, after the state is safely committed.
+    try:
+        _send_receipt(db, sub, tenant)
+    except Exception:
+        pass
+
+
+def _send_receipt(db, sub: Subscription, tenant: Tenant | None) -> None:
+    if not tenant:
+        return
+    from app.models.user import User
+    from app.services.email import send_subscription_receipt_email
+
+    admin = db.query(User).filter(
+        User.tenant_id == tenant.id,
+        User.is_active == True,
+        User.role.in_(["admin", "superadmin"]),
+    ).order_by(User.created_at.asc()).first()
+    if not admin or not admin.email:
+        return
+    plan = PLANS.get(sub.plan, PLANS["starter"])
+    price = plan.get("price")
+    price_str = f"Rs {price:,}/month" if isinstance(price, (int, float)) and price else ""
+    period_end = _aware(sub.current_period_end)
+    next_billing = period_end.strftime("%d %B %Y") if period_end else ""
+    send_subscription_receipt_email(
+        admin.email, tenant.name, plan.get("label", sub.plan), price_str, next_billing
+    )
+
 
 def cancel(db, sub: Subscription, *, immediate: bool = False) -> None:
     """Cancel anytime. Default: keep access until the current period ends."""

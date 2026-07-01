@@ -20,7 +20,7 @@ from app.services.auth import (
     verify_password,
     verify_password_reset_token,
 )
-from app.services.email import send_password_reset_email
+from app.services.email import send_password_reset_email, send_welcome_email
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -183,6 +183,13 @@ def register(
         get_or_create_subscription(db, tenant)
     except Exception:
         db.rollback()  # never block registration on billing setup
+
+    # Welcome email (best-effort — never block sign-up). Runs async in email.py.
+    try:
+        login_link = f"{settings.APP_BASE_URL.rstrip('/')}/login"
+        send_welcome_email(admin_email, tenant.name, data.admin_full_name, login_link)
+    except Exception:
+        pass
 
     return {
         "message": "Clinic registered successfully",

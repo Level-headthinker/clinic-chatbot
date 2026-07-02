@@ -177,10 +177,32 @@ def chunk_text(text: str, size: int = CHUNK_CHARS) -> list[str]:
     return chunks[:MAX_CHUNKS]
 
 
+def _strip_injection_phrases(text: str) -> str:
+    """Neutralise prompt-injection phrases hiding inside ingested content.
+
+    Uploaded documents / scraped web pages are INDIRECT injection channels:
+    their text is later placed into the LLM prompt verbatim, so a page carrying
+    "ignore your previous instructions…" would ride straight in. We reuse the
+    chat input-guard's patterns and blank out any match — the surrounding
+    legitimate content is kept.
+    """
+    from app.services.input_guard import INJECTION_PATTERNS
+    # Broader "ignore/forget … instructions/rules" net than the chat guard —
+    # documents can phrase it any way ("ignore all previous instructions", …).
+    extra = [
+        r"\b(ignore|forget|disregard|override)\s+(\w+\s+){0,3}(instructions|rules|prompts?)\b",
+        r"\byou\s+must\s+now\b",
+        r"\bnew\s+system\s+prompt\b",
+    ]
+    for pattern, _label in list(INJECTION_PATTERNS) + [(p, "ingest") for p in extra]:
+        text = re.sub(pattern, "[removed]", text, flags=re.IGNORECASE)
+    return text
+
+
 def ingest_text(db, *, tenant_id, branch_id, source_type: str,
                 source_name: str, text: str, category: str | None = None) -> dict:
     """Chunk text and store it as knowledge entries sharing one source_ref."""
-    chunks = chunk_text(text)
+    chunks = chunk_text(_strip_injection_phrases(text))
     if not chunks:
         raise IngestError("No readable text was found.")
 

@@ -75,9 +75,13 @@ def _verify_meta_signature(raw_body: bytes, signature_header: str | None) -> boo
     App Secret). Without this, anyone who finds the webhook URL can inject fake
     messages, burn the LLM quota, and make the clinic number send spam."""
     if not settings.META_APP_SECRET:
-        # Fail open only outside production-style deployments; log loudly so a
-        # missing secret is visible in every boot's logs.
-        logger.warning("META_APP_SECRET unset — skipping WhatsApp signature check")
+        if settings.ENVIRONMENT == "production":
+            # FAIL CLOSED in production: without the App Secret we cannot prove a
+            # webhook came from Meta — reject rather than accept forgeable input.
+            logger.error("META_APP_SECRET unset in production — rejecting webhook")
+            return False
+        # Dev/staging convenience: allow, but log loudly on every request.
+        logger.warning("META_APP_SECRET unset — skipping WhatsApp signature check (dev only)")
         return True
     if not signature_header or not signature_header.startswith("sha256="):
         return False
@@ -107,12 +111,10 @@ def _load_context_for_phone(phone_number_id: str):
                     Branch.tenant_id == mapping.tenant_id,
                     Branch.is_active.is_(True),
                 ).order_by(Branch.is_main_branch.desc()).first()
-        else:
-            # Legacy setup: branch.phone holds the phone_number_id directly.
-            branch = db.query(Branch).filter(
-                Branch.phone == phone_number_id,
-                Branch.is_active.is_(True),
-            ).first()
+        # NOTE: the old fallback (Branch.phone == phone_number_id) is gone on
+        # purpose. branch.phone is CLINIC-EDITABLE, so any clinic could set it to
+        # a not-yet-mapped number's ID and capture that number's patient messages.
+        # Routing now requires an explicit whatsapp_number_mappings row.
         if not branch:
             logger.warning("No clinic registered for phone_number_id=%s — ignoring", phone_number_id)
             return None, None, []
@@ -222,8 +224,36 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
                 if _already_seen(msg.get("id", "")):
                     continue
                 background_tasks.add_task(_process_message, msg, phone_number_id)
+            # Delivery statuses: Meta returns 200 on send even when delivery
+            # later fails (e.g. free-form outside the 24h window). A "failed"
+            # status flips the matching auto-reminder back to pending so staff
+            # see the truth instead of a false "Sent".
+            for st in value.get("statuses", []):
+                if st.get("status") == "failed":
+                    background_tasks.add_task(_process_failed_status, st)
 
     return {"status": "ok"}
+
+
+def _process_failed_status(status: dict):
+    """Mark the follow-up whose reminder message failed as NOT sent."""
+    msg_id = status.get("id", "")
+    if not msg_id:
+        return
+    from app.models.follow_up import FollowUp
+    db = SessionLocal()
+    try:
+        fu = db.query(FollowUp).filter(FollowUp.wa_message_id == msg_id).first()
+        if fu and fu.reminder_sent_at is not None:
+            fu.reminder_sent_at = None
+            fu.channel = None
+            fu.status = "pending"   # back on the staff to-do list
+            db.commit()
+            logger.warning("Reminder %s failed to deliver — follow-up reopened", msg_id)
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 # ── Live-call turn endpoint (for the WhatsApp Calling voice agent) ──────────────

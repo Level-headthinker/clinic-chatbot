@@ -94,7 +94,10 @@ async def create_note(
             if data.type == "sms":
                 send_sms(to=data.channel_target, body=data.content)
             elif data.type == "whatsapp":
-                send_whatsapp(to=data.channel_target, body=data.content)
+                # Send FROM this clinic's own WhatsApp number, not the global one.
+                from app.services.messaging import tenant_sender_pnid
+                send_whatsapp(to=data.channel_target, body=data.content,
+                              from_pnid=tenant_sender_pnid(db, current_user.tenant_id))
             elif data.type == "email":
                 send_email(to=data.channel_target, subject="Message from your clinic", body=data.content)
             delivery_status = "sent"

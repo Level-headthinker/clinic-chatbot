@@ -456,7 +456,9 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
         current_messages.append({"role": "user", "content": clean_message})
         info = extract_patient_info(current_messages)
         if info["name"] and not session.patient_name:
-            session.patient_name = info["name"]
+            # The extracted name is echoed back into the LLM prompt — sanitize it
+            # so a "name" can't smuggle instructions (newlines/length abuse).
+            session.patient_name = re.sub(r"\s+", " ", str(info["name"])).strip()[:100]
         if info["phone"] and not session.patient_phone:
             session.patient_phone = info["phone"]
 
@@ -616,6 +618,11 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
         ai_reply = normalize_for_speech(ai_reply)
 
     messages[-1] = {"role": "assistant", "content": ai_reply}
+    # Cap stored history: the LLM only ever reads the recent tail, but without a
+    # cap long-running WhatsApp threads rewrite an ever-growing JSONB row on
+    # every single turn.
+    if len(messages) > 100:
+        messages = messages[-100:]
     session.messages = messages
 
     # Notifications fire only after a successful commit — never for unsaved records.

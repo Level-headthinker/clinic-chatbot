@@ -68,9 +68,6 @@ class Settings(BaseSettings):
     SAFEPAY_SECRET_KEY: str = ""
     SAFEPAY_WEBHOOK_SECRET: str = ""
     SAFEPAY_ENV: str = "sandbox"          # sandbox | production
-    # Secret for the test/manual provider's confirm endpoint (so test activation
-    # can't be triggered by a random request). Any value; only used in manual mode.
-    BILLING_TEST_SECRET: str = "test-billing-secret"
 
     # VAPI.ai — Voice Agent (free 10 min/month, then pay-per-minute)
     VAPI_API_KEY: str = ""               # From vapi.ai dashboard

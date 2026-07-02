@@ -27,3 +27,10 @@ class TestResetToken:
     def test_tampered_token_rejected(self):
         t = create_password_reset_token("user-abc")
         assert verify_password_reset_token(t + "x") is None
+
+    def test_single_use_via_password_fingerprint(self):
+        # Token is bound to the CURRENT password hash. Once the password
+        # changes, the same link must be dead (single-use).
+        t = create_password_reset_token("user-abc", pw_hash="$2b$old-hash")
+        assert verify_password_reset_token(t, current_pw_hash="$2b$old-hash") == "user-abc"
+        assert verify_password_reset_token(t, current_pw_hash="$2b$NEW-hash") is None

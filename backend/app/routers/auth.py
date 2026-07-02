@@ -235,7 +235,7 @@ def login(
             detail="Clinic is disabled"
         )
 
-    token = create_access_token(data={"sub": str(user.id)})
+    token = create_access_token(data={"sub": str(user.id), "ver": user.token_version or 0})
     response.set_cookie(
         key="access_token",
         value=token,
@@ -308,7 +308,9 @@ def forgot_password(
         sa_func.lower(User.email) == email, User.is_active == True
     ).first()
     if user:
-        token = create_password_reset_token(str(user.id))
+        # Fingerprint the current hash into the token → the link dies the moment
+        # the password changes (single-use).
+        token = create_password_reset_token(str(user.id), pw_hash=user.hashed_password)
         link = f"{settings.APP_BASE_URL.rstrip('/')}/reset-password?token={token}"
         tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
         send_password_reset_email(user.email, link, tenant.name if tenant else "ClinicBot")
@@ -330,8 +332,14 @@ def reset_password(
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=400, detail="This reset link is invalid or has expired.")
+    # Single-use check: token must match the CURRENT password hash — a link that
+    # was already used (or issued before an earlier reset) is spent.
+    if verify_password_reset_token(data.token, current_pw_hash=user.hashed_password) is None:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired.")
 
     user.hashed_password = hash_password(data.new_password)
+    # Kill every existing session/JWT for this account (stolen tokens included).
+    user.token_version = (user.token_version or 0) + 1
     db.commit()
     return {"message": "Password updated. You can now log in with your new password."}
 

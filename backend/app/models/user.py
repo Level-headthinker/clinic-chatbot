@@ -1,7 +1,7 @@
 # Defines the users table. These are the people who log into your admin dashboard
 # — clinic owners and their staff.
 # Every user belongs to one tenant (clinic)
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -22,6 +22,9 @@ class User(Base):
     role = Column(String(50), default="admin")
     is_active = Column(Boolean, default=True)
     is_superadmin = Column(Boolean, default=False, nullable=False)
+    # Bumped on password reset — every JWT minted before the bump becomes
+    # invalid (get_current_user compares the token's "ver" claim to this).
+    token_version = Column(Integer, default=0, nullable=False, server_default="0")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant", back_populates="users")

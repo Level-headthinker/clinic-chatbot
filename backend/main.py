@@ -319,6 +319,18 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS onboarding_dismissed BOOLEAN NOT NULL DEFAULT FALSE",
             "tenants.onboarding_dismissed")
+        # Session invalidation: bumping this kills all older JWTs for the user.
+        _run_sql(conn,
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0",
+            "users.token_version")
+        # Delivery tracking: the Meta message id of an auto reminder, so status
+        # webhooks (failed/undeliverable) can flip a false "Sent" back to pending.
+        _run_sql(conn,
+            "ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS wa_message_id VARCHAR(128)",
+            "follow_ups.wa_message_id")
+        _run_sql(conn,
+            "CREATE INDEX IF NOT EXISTS ix_follow_ups_wa_msg ON follow_ups (wa_message_id)",
+            "index follow_ups.wa_message_id")
         print("✅ Migrations complete")
 
 

@@ -46,26 +46,41 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 
 # ── Password reset tokens ────────────────────────────────────
-# A short-lived, purpose-scoped JWT. No DB column needed; the token itself
-# carries the user id + a "reset" purpose so it can't be used as a login token.
+# A short-lived, purpose-scoped JWT. No DB column needed; the token carries the
+# user id + a "reset" purpose (so it can't be used as a login token) + a
+# fingerprint of the CURRENT password hash — so the link becomes single-use:
+# the moment the password changes, the fingerprint no longer matches and the
+# same link (or a stolen copy) is dead.
 
-def create_password_reset_token(user_id: str, expires_minutes: int = 30) -> str:
+def _pw_fingerprint(hashed_password: str) -> str:
+    import hashlib
+    return hashlib.sha256((hashed_password or "").encode()).hexdigest()[:16]
+
+
+def create_password_reset_token(user_id: str, pw_hash: str = "",
+                                expires_minutes: int = 30) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     return jwt.encode(
-        {"sub": str(user_id), "purpose": "reset", "exp": expire},
+        {"sub": str(user_id), "purpose": "reset", "exp": expire,
+         "pwf": _pw_fingerprint(pw_hash)},
         settings.SECRET_KEY,
         algorithm=settings.ALGORITHM,
     )
 
 
-def verify_password_reset_token(token: str) -> Optional[str]:
-    """Return the user id if the token is a valid, unexpired reset token, else None."""
+def verify_password_reset_token(token: str, current_pw_hash: Optional[str] = None) -> Optional[str]:
+    """Return the user id if the token is a valid, unexpired reset token — and,
+    when ``current_pw_hash`` is given, only if the password hasn't changed since
+    the token was issued (single-use)."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
     if payload.get("purpose") != "reset":
         return None
+    if current_pw_hash is not None:
+        if payload.get("pwf") != _pw_fingerprint(current_pw_hash):
+            return None  # password already changed → link is spent
     return payload.get("sub")
 
 
@@ -101,6 +116,11 @@ def get_current_user(
     ).first()
 
     if user is None:
+        raise credentials_exception
+    # Session invalidation: the token carries the token_version it was minted
+    # with; a password reset bumps the user's version, killing every older
+    # token (a stolen JWT dies the moment the password is changed).
+    if payload.get("ver", 0) != (user.token_version or 0):
         raise credentials_exception
     return user
 

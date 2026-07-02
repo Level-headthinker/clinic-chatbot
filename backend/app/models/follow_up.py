@@ -27,6 +27,9 @@ class FollowUp(Base):
     kind = Column(String(20), nullable=False, server_default="manual")
     channel = Column(String(20))                          # whatsapp, when an auto reminder was sent
     reminder_sent_at = Column(DateTime(timezone=True))    # when the auto message actually went out
+    # Meta's message id for the auto reminder — lets the `statuses` webhook flip
+    # a send that later FAILED (e.g. outside the 24h window) back to pending.
+    wa_message_id = Column(String(128), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

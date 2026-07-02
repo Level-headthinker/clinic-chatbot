@@ -32,7 +32,7 @@ from app.models.follow_up import FollowUp
 from app.models.patient import Patient
 from app.models.tenant import Tenant
 from app.models.visit import VisitRecord
-from app.services.messaging import send_whatsapp, send_whatsapp_template
+from app.services.messaging import send_whatsapp, send_whatsapp_template, tenant_sender_pnid
 
 
 # ── Message builders (pure — unit tested) ────────────────────────────────────────
@@ -72,20 +72,25 @@ def _doctor_label(name: str | None) -> str | None:
     return name if name.lower().startswith("dr") else f"Dr. {name}"
 
 
-def _deliver(phone, *, template_name=None, template_params=None, text=None) -> bool:
-    """Send via WhatsApp, preferring an approved template (delivers outside the
-    24h window) and falling back to free-form text (delivers within it).
-    Returns True only if a message was actually accepted by Meta."""
+def _deliver(phone, *, template_name=None, template_params=None, text=None,
+             from_pnid=None):
+    """Send via WhatsApp — FROM the clinic's own number (``from_pnid``) —
+    preferring an approved template (delivers outside the 24h window) and
+    falling back to free-form text (delivers within it).
+    Returns Meta's message id (truthy) when accepted, else False/None. The id is
+    stored so the delivery-status webhook can catch messages Meta accepted but
+    later failed to deliver."""
     if template_name:
         try:
-            if send_whatsapp_template(phone, template_name, settings.WA_TEMPLATE_LANG,
-                                      template_params or []):
-                return True
+            result = send_whatsapp_template(phone, template_name, settings.WA_TEMPLATE_LANG,
+                                            template_params or [], from_pnid=from_pnid)
+            if result:
+                return result
         except Exception:
             pass  # template send failed — try free-form below
     if text:
         try:
-            return bool(send_whatsapp(phone, text))
+            return send_whatsapp(phone, text, from_pnid=from_pnid)
         except Exception:
             return False
     return False
@@ -93,18 +98,24 @@ def _deliver(phone, *, template_name=None, template_params=None, text=None) -> b
 
 def _record_followup(db, *, tenant_id, branch_id, kind, title, notes, due_date,
                      patient_id=None, lead_id=None, visit_id=None,
-                     phone=None, message=None, template_name=None, template_params=None) -> bool:
+                     phone=None, message=None, template_name=None, template_params=None,
+                     from_pnid=None) -> bool:
     """Send the WhatsApp message (best-effort) and log the follow-up. Returns
     True if the message was actually delivered."""
     sent_at = None
     channel = None
     status = "pending"
+    wa_message_id = None
     if phone and (message or template_name):
-        if _deliver(phone, template_name=template_name,
-                    template_params=template_params, text=message):
+        result = _deliver(phone, template_name=template_name,
+                          template_params=template_params, text=message,
+                          from_pnid=from_pnid)
+        if result:
             sent_at = datetime.now(timezone.utc)
             channel = "whatsapp"
             status = "done"
+            if isinstance(result, str):
+                wa_message_id = result[:128]
 
     db.add(FollowUp(
         tenant_id=tenant_id,
@@ -119,6 +130,7 @@ def _record_followup(db, *, tenant_id, branch_id, kind, title, notes, due_date,
         kind=kind,
         channel=channel,
         reminder_sent_at=sent_at,
+        wa_message_id=wa_message_id,
     ))
     db.commit()
     return sent_at is not None
@@ -126,7 +138,7 @@ def _record_followup(db, *, tenant_id, branch_id, kind, title, notes, due_date,
 
 # ── Jobs ─────────────────────────────────────────────────────────────────────────
 
-def _next_visit_reminders(db) -> dict:
+def _next_visit_reminders(db, pnid_cache: dict) -> dict:
     target = date.today() + timedelta(days=settings.NEXT_VISIT_REMINDER_DAYS_BEFORE)
     due_dt = datetime.combine(target, time(9, 0))
 
@@ -154,6 +166,8 @@ def _next_visit_reminders(db) -> dict:
         reason = (v.diagnosis or "").strip()[:60] or None
         msg = next_visit_message(patient.name, clinic, doctor_label, date_str, reason)
 
+        if v.tenant_id not in pnid_cache:
+            pnid_cache[v.tenant_id] = tenant_sender_pnid(db, v.tenant_id)
         delivered = _record_followup(
             db, tenant_id=v.tenant_id, branch_id=v.branch_id, kind="next_visit",
             title=f"Next-visit reminder — {patient.name}",
@@ -162,13 +176,14 @@ def _next_visit_reminders(db) -> dict:
             phone=patient.phone, message=msg,
             template_name=settings.WA_TEMPLATE_NEXT_VISIT,
             template_params=[patient.name, clinic, doctor_label or "your doctor", date_str],
+            from_pnid=pnid_cache[v.tenant_id],
         )
         created += 1
         sent += 1 if delivered else 0
     return {"created": created, "sent": sent}
 
 
-def _lead_nudges(db) -> dict:
+def _lead_nudges(db, pnid_cache: dict) -> dict:
     now = datetime.now(timezone.utc)
     newest = now - timedelta(days=settings.LEAD_NUDGE_AFTER_DAYS)
     oldest = now - timedelta(days=settings.LEAD_NUDGE_MAX_AGE_DAYS)
@@ -199,6 +214,8 @@ def _lead_nudges(db) -> dict:
 
         clinic = _clinic_name(db, lead.tenant_id)
         msg = lead_nudge_message(lead.name, clinic)
+        if lead.tenant_id not in pnid_cache:
+            pnid_cache[lead.tenant_id] = tenant_sender_pnid(db, lead.tenant_id)
         delivered = _record_followup(
             db, tenant_id=lead.tenant_id, branch_id=lead.branch_id, kind="lead_nudge",
             title=f"Lead nudge — {lead.name}",
@@ -207,6 +224,7 @@ def _lead_nudges(db) -> dict:
             phone=lead.phone, message=msg,
             template_name=settings.WA_TEMPLATE_LEAD_NUDGE,
             template_params=[lead.name, clinic],
+            from_pnid=pnid_cache[lead.tenant_id],
         )
         created += 1
         sent += 1 if delivered else 0
@@ -217,8 +235,9 @@ def run_reminders(db) -> dict:
     """Run both reminder passes. Safe to call repeatedly — de-dups itself."""
     if not settings.AUTO_REMINDERS_ENABLED:
         return {"enabled": False}
-    nv = _next_visit_reminders(db)
-    ln = _lead_nudges(db)
+    pnid_cache: dict = {}  # tenant_id → the clinic's own sender number (one lookup per run)
+    nv = _next_visit_reminders(db, pnid_cache)
+    ln = _lead_nudges(db, pnid_cache)
     return {
         "enabled": True,
         "next_visit": nv,

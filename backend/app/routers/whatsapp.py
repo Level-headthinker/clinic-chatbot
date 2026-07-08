@@ -327,6 +327,7 @@ def call_turn(data: CallTurnRequest, x_api_key: str | None = Header(default=None
 
 def _process_message(msg: dict, phone_number_id: str):
     """Route one inbound message. Runs in the background; never raises."""
+    from app.observability import report_error
     mtype = msg.get("type")
     wa_from = msg.get("from", "")
     try:
@@ -348,7 +349,10 @@ def _process_message(msg: dict, phone_number_id: str):
         elif mtype == "audio":
             _handle_voice(wa_from, msg["audio"]["id"], phone_number_id)
     except Exception as e:  # noqa: BLE001 — background task must not crash the worker
-        print(f"⚠️  WhatsApp process error ({mtype} from {wa_from}): {e}")
+        # A background task that fails here means a patient message got no reply
+        # and Meta already 200'd — surface it instead of losing it silently.
+        report_error("WhatsApp inbound processing failed", e,
+                     type=mtype, phone_number_id=phone_number_id)
 
 
 def _store_inbound(session, text: str):
@@ -602,9 +606,10 @@ def _send_whatsapp_reply(to: str, body: str, from_pnid: str | None = None):
     # Reply FROM the number that received the message — WhatsApp's 24h service
     # window is per-number, so sending from any other number would fail to
     # deliver in-session. Falls back to the global number for legacy single-number.
+    from app.observability import report_error
     sender = from_pnid or settings.META_PHONE_NUMBER_ID
     if not sender or not settings.META_ACCESS_TOKEN:
-        print("⚠️  WhatsApp reply skipped: META credentials not set")
+        report_error("WhatsApp reply skipped: META credentials not set")
         return
     try:
         resp = httpx.post(
@@ -614,6 +619,9 @@ def _send_whatsapp_reply(to: str, body: str, from_pnid: str | None = None):
             timeout=10,
         )
         if resp.status_code != 200:
-            print(f"⚠️  WhatsApp reply failed: {resp.status_code} — {resp.text}")
+            # A non-200 here (esp. 401/190 = expired token) means the bot has
+            # effectively gone dark for this clinic — must not be silent.
+            report_error("WhatsApp reply failed", status=resp.status_code,
+                         detail=resp.text[:200], sender=sender)
     except Exception as e:  # noqa: BLE001
-        print(f"⚠️  WhatsApp reply exception: {e}")
+        report_error("WhatsApp reply exception", e, sender=sender)

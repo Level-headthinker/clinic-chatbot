@@ -26,6 +26,7 @@ _scheduler = BackgroundScheduler(timezone="Asia/Karachi")
 # job would run N times (N workers) — patients would get N reminder messages.
 # A Postgres advisory lock elects one winner per job run; losers skip silently.
 _JOB_LOCK_IDS = {
+    "health_check": 91_000,
     "reminders": 91_001,
     "reminder_agent": 91_002,
     "message_limit_reset": 91_003,
@@ -53,7 +54,10 @@ def _run_locked(job_name: str, fn):
                 conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": lock_id})
                 conn.commit()
     except Exception as e:  # never let lock plumbing kill the scheduler
-        print(f"⚠️  scheduled job {job_name} failed: {e}")
+        # A job that throws every run means reminders/expiries silently stop —
+        # report so it's visible instead of a log line nobody reads.
+        from app.observability import report_error
+        report_error("Scheduled job failed", e, job=job_name)
 
 
 def _send_reminders():
@@ -161,8 +165,10 @@ def _expire_subscriptions():
         n = expire_due_subscriptions(db)
         if n:
             print(f"⏳ {n} subscription(s) expired")
-    except Exception:
+    except Exception as e:
         db.rollback()
+        from app.observability import report_error
+        report_error("Subscription expiry job failed", e)
     finally:
         db.close()
 
@@ -175,8 +181,57 @@ def _run_reminder_agent():
         res = run_reminders(db)
         if res.get("created"):
             print(f"🔔 reminder agent: {res}")
-    except Exception:
+    except Exception as e:
         db.rollback()
+        from app.observability import report_error
+        report_error("Reminder agent job failed", e)
+    finally:
+        db.close()
+
+
+def _health_check():
+    """Detect the silent outages before a clinic does.
+
+    Two failures otherwise go completely unnoticed until a patient complains:
+      1. the WhatsApp/Meta access token expired → the bot can't reply to anyone;
+      2. the database is unreachable.
+    Both are probed here and reported via report_error (→ logs + Sentry).
+    """
+    import httpx
+    from app.observability import report_error
+    from app.models.whatsapp_number import WhatsAppNumberMapping
+
+    db = SessionLocal()
+    try:
+        # 1) DB probe.
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
+
+        # 2) WhatsApp token probe — GET a phone number node; 401/190 = dead token.
+        if settings.META_ACCESS_TOKEN:
+            pnid = settings.META_PHONE_NUMBER_ID
+            if not pnid:
+                m = db.query(WhatsAppNumberMapping).filter(
+                    WhatsAppNumberMapping.is_active.is_(True)
+                ).first()
+                pnid = m.phone_number_id if m else None
+            if pnid:
+                try:
+                    resp = httpx.get(
+                        f"https://graph.facebook.com/v19.0/{pnid}",
+                        headers={"Authorization": f"Bearer {settings.META_ACCESS_TOKEN}"},
+                        timeout=10,
+                    )
+                    if resp.status_code in (401, 403) or '"code":190' in resp.text:
+                        report_error(
+                            "WhatsApp access token invalid/expired — the bot cannot "
+                            "send messages. Regenerate META_ACCESS_TOKEN.",
+                            status=resp.status_code, detail=resp.text[:200],
+                        )
+                except Exception as e:
+                    report_error("WhatsApp health probe could not reach Meta", e)
+    except Exception as e:
+        report_error("Health check DB probe failed", e)
     finally:
         db.close()
 
@@ -192,6 +247,7 @@ def _monthly_reports():
 
 
 # Named wrappers (APScheduler needs stable callables) — each gated by the lock.
+def _job_health_check():         _run_locked("health_check", _health_check)
 def _job_reminders():            _run_locked("reminders", _send_reminders)
 def _job_message_limit_reset():  _run_locked("message_limit_reset", _reset_message_counters)
 def _job_weekly_reports():       _run_locked("weekly_reports", _weekly_reports)
@@ -219,6 +275,9 @@ def start_scheduler():
         # Automatic follow-up reminders — once a day at 10:00 (PKT).
         _scheduler.add_job(_job_reminder_agent, "cron",
                            hour=10, minute=0, id="reminder_agent")
+        # Silent-outage detector — token/DB probe every 6 hours.
+        _scheduler.add_job(_job_health_check, "interval",
+                           hours=6, id="health_check")
         _scheduler.start()
 
 

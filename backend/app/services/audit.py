@@ -73,11 +73,11 @@ def log_audit(
         if commit:
             db.commit()
     except Exception as e:  # never let auditing break the real action
-        try:
-            import sentry_sdk
-            sentry_sdk.capture_exception(e)
-        except Exception:
-            pass
+        # A dropped audit row means a change happened with no trail — report it
+        # (logs + Sentry) instead of swallowing it entirely.
+        from app.observability import report_error
+        report_error("Audit log write failed", e,
+                     action=action, entity_type=entity_type)
 
 
 def snapshot(obj, fields: list[str]) -> dict:

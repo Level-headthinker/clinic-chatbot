@@ -28,7 +28,11 @@ def send_email(to: str, subject: str, body: str):
 
             logger.info("Email sent to %s", to)
         except Exception as e:
-            logger.exception("Email failed: %s", e)
+            # This runs in a daemon thread — the request already returned success
+            # to the user. A failed reset/receipt email is otherwise invisible
+            # (Gmail's ~500/day cap, auth failure), so surface it to ops.
+            from app.observability import report_error
+            report_error("Email send failed", e, subject=subject[:60])
 
     threading.Thread(target=_send, daemon=True).start()
 

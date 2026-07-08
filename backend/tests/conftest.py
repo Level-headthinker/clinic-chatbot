@@ -61,3 +61,61 @@ def reset_rate_store():
     yield
     _rate_store.clear()
     _last_message_store.clear()
+
+
+# ── Integration-test scaffolding (opt-in: needs a disposable Postgres) ──────────
+# The two things worth an *integration* test — the double-booking guard and the
+# webhook idempotency check — only behave correctly against real Postgres:
+#   • the anti-double-book guard is a PARTIAL UNIQUE INDEX (postgresql_where),
+#     which SQLite silently ignores, so it must run on Postgres to mean anything.
+# These fixtures are shared by the integration test modules.
+import os
+import uuid as _uuid
+
+import pytest
+
+needs_db = pytest.mark.skipif(
+    not os.environ.get("TEST_DATABASE_URL"),
+    reason="set TEST_DATABASE_URL to a DISPOSABLE postgres database to run",
+)
+
+
+@pytest.fixture()
+def db_session():
+    """A real Postgres session with the full schema created. Rolls back and
+    disposes after each test. Requires TEST_DATABASE_URL (see `needs_db`)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Base
+
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+        engine.dispose()
+
+
+@pytest.fixture()
+def make_clinic(db_session):
+    """Factory: create an isolated clinic (tenant + main branch + doctor) with
+    unique slugs so repeated runs never collide. Returns (tenant, branch, doctor)."""
+    from app.models.branch import Branch
+    from app.models.doctor import Doctor
+    from app.models.tenant import Tenant
+
+    def _make(label="clinic"):
+        suffix = _uuid.uuid4().hex[:8]
+        t = Tenant(name=f"{label} {suffix}", slug=f"{label}-{suffix}")
+        db_session.add(t); db_session.flush()
+        b = Branch(tenant_id=t.id, name=label, slug=t.slug, is_main_branch=True)
+        db_session.add(b); db_session.flush()
+        d = Doctor(tenant_id=t.id, branch_id=b.id, name=f"Dr {label}", specialty="GP")
+        db_session.add(d); db_session.flush()
+        return t, b, d
+
+    return _make

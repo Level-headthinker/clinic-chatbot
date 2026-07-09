@@ -111,3 +111,30 @@ class TestSummarize:
         s = summarize(db_session, t.id, days=30)
         assert s["total_turns"] == 0
         assert s["conversion_rate"] == 0.0
+
+
+@needs_db
+class TestSummarizeGlobal:
+    def test_rolls_up_across_clinics_with_safety_metric(self, db_session, make_clinic):
+        from app.services.conversation_logger import log_interaction
+        from app.services.interaction_analytics import summarize_global
+
+        ta, ba, da = make_clinic("clinic-A")
+        tb, bb, db2 = make_clinic("clinic-B")
+        db_session.commit()
+
+        # Clinic A: 1 booking-intent turn, booked, clean.
+        log_interaction(db_session, tenant_id=ta.id, branch_id=ba.id,
+                        intent="book_appointment", outcome="booked", kb_hit=True)
+        # Clinic B: 1 turn, KB miss + a safety flag (the superadmin-only signal).
+        log_interaction(db_session, tenant_id=tb.id, branch_id=bb.id,
+                        intent="general", outcome="answered",
+                        kb_hit=False, output_flagged=True)
+
+        g = summarize_global(db_session, days=30)
+        assert g["total_turns"] >= 2
+        assert g["active_clinics"] >= 2
+        names = {c["clinic_name"]: c for c in g["clinics"]}
+        assert names[ta.name]["conversion_rate"] == 1.0
+        assert names[tb.name]["output_flag_rate"] == 1.0   # safety signal surfaced
+        assert names[tb.name]["kb_miss_rate"] == 1.0

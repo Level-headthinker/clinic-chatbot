@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { Building2, Calendar, ChevronDown, ChevronRight, DollarSign, MessageSquare, Phone, Plus, Stethoscope, Users } from "lucide-react";
+import { Bot, BookOpen, Building2, Calendar, ChevronDown, ChevronRight, DollarSign, MessageSquare, Phone, Plus, ShieldAlert, Stethoscope, Target, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -136,6 +136,8 @@ export default function SuperAdmin() {
               <Metric icon={<DollarSign size={22} />}   label="Est. MRR"      value={`PKR ${stats.estimated_mrr?.toLocaleString()}`} />
             </div>
           )}
+
+          <AIFeedback notify={notify} />
 
           <section className="table-panel">
             <div className="panel-header">
@@ -441,5 +443,91 @@ function Metric({ icon, label, value }) {
         <p className="metric-value">{value}</p>
       </div>
     </div>
+  );
+}
+
+const _pct = (r) => `${Math.round((Number(r) || 0) * 100)}%`;
+
+// ── Platform-wide AI feedback loop (superadmin only) ───────────────────────────
+// Includes the safety (output-guard) rate that is deliberately hidden from the
+// per-clinic admin view — this is where we watch for a misbehaving prompt.
+function AIFeedback({ notify }) {
+  const [fb, setFb] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(30);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api.get("/super/feedback", { params: { days } })
+      .then((res) => { if (alive) setFb(res.data); })
+      .catch(() => { if (alive) notify?.("Failed to load AI feedback.", "error"); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [days, notify]);
+
+  return (
+    <section className="table-panel" style={{ marginTop: 16 }}>
+      <div className="panel-header">
+        <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Bot size={18} /> AI feedback loop
+        </h2>
+        <div style={{ display: "flex", gap: 6 }}>
+          {[7, 30, 90].map((d) => (
+            <button
+              key={d}
+              className={`btn ${days === d ? "btn-primary" : "btn-secondary"}`}
+              style={{ fontSize: 12, padding: "6px 11px" }}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && !fb ? (
+        <p style={{ padding: 16, color: "var(--muted)", fontSize: 13 }}>Loading…</p>
+      ) : !fb || fb.total_turns === 0 ? (
+        <EmptyState title="No conversations yet"
+          description="Once patients chat with any clinic's bot, platform metrics appear here." />
+      ) : (
+        <>
+          <div className="metric-grid" style={{ marginBottom: 4 }}>
+            <Metric icon={<MessageSquare size={22} />} label="Conversations" value={fb.total_turns.toLocaleString()} />
+            <Metric icon={<Building2 size={22} />}     label="Active clinics" value={fb.active_clinics} />
+            <Metric icon={<Target size={22} />}        label="Conversion"     value={_pct(fb.conversion_rate)} />
+            <Metric icon={<BookOpen size={22} />}      label="Knowledge gaps" value={_pct(fb.kb_miss_rate)} />
+            <Metric icon={<ShieldAlert size={22} />}   label="Safety flags"   value={_pct(fb.output_flag_rate)} />
+          </div>
+
+          <table className="responsive-table">
+            <thead>
+              <tr>
+                {["Clinic", "Chats", "Booked", "Conversion", "Knowledge gaps", "Safety flags"].map((h) => (
+                  <th key={h}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {fb.clinics.map((c) => (
+                <tr key={c.tenant_id || c.clinic_name}>
+                  <td data-label="Clinic"><strong>{c.clinic_name}</strong></td>
+                  <td data-label="Chats">{c.turns}</td>
+                  <td data-label="Booked">{c.booked}</td>
+                  <td data-label="Conversion">{_pct(c.conversion_rate)}</td>
+                  <td data-label="Knowledge gaps" style={{ color: c.kb_miss_rate >= 0.5 ? "#f59e0b" : "inherit" }}>
+                    {_pct(c.kb_miss_rate)}
+                  </td>
+                  <td data-label="Safety flags" style={{ color: c.output_flag_rate >= 0.1 ? "#ef4444" : "inherit" }}>
+                    {_pct(c.output_flag_rate)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
   );
 }

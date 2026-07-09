@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import {
   Users, UserCheck, PhoneCall, RefreshCw, Calendar,
-  Wallet, AlertCircle, Bot, Target, BookOpen, ShieldAlert,
+  Wallet, AlertCircle, Bot, Target, BookOpen,
 } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -154,11 +154,6 @@ function BotPerformance() {
               label="Knowledge gaps" value={pct(fb.kb_miss_rate)}
               sub="Questions with no KB answer"
               icon={BookOpen} accent="#f59e0b" tint="rgba(245,158,11,.12)"
-            />
-            <StatCard
-              label="Safety interventions" value={pct(fb.output_flag_rate)}
-              sub="Replies the guard corrected"
-              icon={ShieldAlert} accent="#8b5cf6" tint="rgba(139,92,246,.12)"
             />
           </div>
 

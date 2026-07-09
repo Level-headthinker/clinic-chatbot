@@ -33,6 +33,19 @@ def verify_super_admin(current_user: User = Depends(get_current_user)):
 # EXISTING ENDPOINTS (unchanged)
 # ════════════════════════════════════════════════════════════
 
+@router.get("/feedback")
+def feedback_rollup(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_super_admin),
+):
+    """Platform-wide data feedback loop: global funnel + per-clinic rollup,
+    including the safety (output-guard) rate that stays out of the per-clinic
+    admin view. Superadmin only. PHI-free (reads InteractionEvent)."""
+    from app.services.interaction_analytics import summarize_global
+    return summarize_global(db, days=days)
+
+
 @router.get("/stats")
 def get_stats(
     db: Session = Depends(get_db),

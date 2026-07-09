@@ -6,7 +6,7 @@ what to fix: conversion rate, what people ask about, and where the bot is weak
 """
 from datetime import datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.models.interaction_event import InteractionEvent
@@ -71,4 +71,65 @@ def summarize(db: Session, tenant_id, *, days: int = 30) -> dict:
         "output_flag_rate": round(flagged / total, 3),
         "intents": dict(sorted(intents.items(), key=lambda kv: kv[1], reverse=True)),
         "outcomes": outcomes,
+    }
+
+
+def summarize_global(db: Session, *, days: int = 30) -> dict:
+    """Superadmin-only: the feedback loop across ALL clinics.
+
+    Returns platform totals plus a per-clinic rollup — including the safety
+    (output-guard) rate, which is an internal ops signal we deliberately keep
+    OUT of the per-clinic admin view. Use it to spot a misbehaving prompt or a
+    clinic with a large knowledge gap. No PHI — all from InteractionEvent.
+    """
+    from app.models.tenant import Tenant
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    rows = (
+        db.query(
+            InteractionEvent.tenant_id,
+            func.count().label("turns"),
+            func.sum(case((InteractionEvent.outcome == "booked", 1), else_=0)).label("booked"),
+            func.sum(case((InteractionEvent.intent == "book_appointment", 1), else_=0)).label("booking_intent"),
+            func.sum(case((InteractionEvent.kb_hit.is_(False), 1), else_=0)).label("kb_misses"),
+            func.sum(case((InteractionEvent.output_flagged.is_(True), 1), else_=0)).label("flagged"),
+        )
+        .filter(InteractionEvent.created_at >= since)
+        .group_by(InteractionEvent.tenant_id)
+        .all()
+    )
+
+    names = {t.id: t.name for t in db.query(Tenant.id, Tenant.name).all()}
+
+    clinics = []
+    tot_turns = tot_booked = tot_intent = tot_kb_miss = tot_flagged = 0
+    for r in rows:
+        tot_turns += r.turns
+        tot_booked += r.booked or 0
+        tot_intent += r.booking_intent or 0
+        tot_kb_miss += r.kb_misses or 0
+        tot_flagged += r.flagged or 0
+        clinics.append({
+            "tenant_id": str(r.tenant_id) if r.tenant_id else None,
+            "clinic_name": names.get(r.tenant_id, "Unknown"),
+            "turns": r.turns,
+            "booked": r.booked or 0,
+            "conversion_rate": round((r.booked or 0) / r.booking_intent, 3) if r.booking_intent else 0.0,
+            "kb_miss_rate": round((r.kb_misses or 0) / r.turns, 3) if r.turns else 0.0,
+            "output_flag_rate": round((r.flagged or 0) / r.turns, 3) if r.turns else 0.0,
+        })
+
+    # Worst offenders first — the clinics that need attention.
+    clinics.sort(key=lambda c: (c["output_flag_rate"], c["kb_miss_rate"]), reverse=True)
+
+    return {
+        "days": days,
+        "total_turns": tot_turns,
+        "active_clinics": len(clinics),
+        "booked": tot_booked,
+        "conversion_rate": round(tot_booked / tot_intent, 3) if tot_intent else 0.0,
+        "kb_miss_rate": round(tot_kb_miss / tot_turns, 3) if tot_turns else 0.0,
+        "output_flag_rate": round(tot_flagged / tot_turns, 3) if tot_turns else 0.0,
+        "clinics": clinics,
     }

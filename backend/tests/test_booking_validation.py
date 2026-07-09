@@ -16,6 +16,9 @@ class _NoBookedQuery:
     def first(self):
         return None
 
+    def count(self):
+        return 0   # capacity check: no seats taken in this slot
+
 
 class _FakeDB:
     def query(self, model):

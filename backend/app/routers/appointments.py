@@ -51,16 +51,12 @@ def book_appointment(
             detail="Doctor not found"
         )
 
-    existing = db.query(Appointment).filter(
-        Appointment.doctor_id == data.doctor_id,
-        Appointment.tenant_id == current_user.tenant_id,
-        Appointment.slot_datetime == data.slot_datetime,
-        Appointment.status.in_(["pending", "confirmed"])
-    ).first()
-    if existing:
+    from app.services.slot_capacity import next_free_seat
+    seat = next_free_seat(db, doctor, current_user.tenant_id, data.slot_datetime)
+    if seat is None:
         raise HTTPException(
             status_code=400,
-            detail="This slot is already booked"
+            detail="This slot is already full"
         )
 
     appointment = Appointment(
@@ -71,6 +67,7 @@ def book_appointment(
         patient_phone=data.patient_phone,
         patient_concern=data.patient_concern,
         slot_datetime=data.slot_datetime,
+        slot_index=seat,
         status="pending"
     )
     db.add(appointment)
@@ -170,7 +167,15 @@ def update_appointment(
     if data.notes is not None:
         appointment.notes = data.notes
 
+    freed = data.status in ("cancelled", "no_show")
     db.commit()
+
+    # A cancellation frees the slot — offer it to patients booked for the same
+    # time on a later day (first to reply YES gets moved earlier). Best-effort.
+    if freed:
+        from app.services.slot_backfill import offer_freed_slot
+        offer_freed_slot(db, appointment)
+
     return {"message": "Appointment updated successfully"}
 
 

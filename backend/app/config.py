@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     WA_TEMPLATE_NEXT_VISIT: str = ""           # params: {{1}} name {{2}} clinic {{3}} doctor {{4}} date
     WA_TEMPLATE_LEAD_NUDGE: str = ""           # params: {{1}} name {{2}} clinic
     WA_TEMPLATE_APPT_REMINDER: str = ""        # params: {{1}} name {{2}} clinic {{3}} doctor {{4}} datetime
+    WA_TEMPLATE_POST_SESSION: str = ""         # params: {{1}} name {{2}} clinic
 
     # ── Billing / subscriptions ────────────────────────────────
     # Public base URL of the frontend (for checkout success/cancel redirects).

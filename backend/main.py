@@ -156,6 +156,34 @@ def _add_missing_columns():
         _run_sql(conn,
             "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS is_ready BOOLEAN NOT NULL DEFAULT FALSE",
             "doctors.is_ready")
+
+        # ── Per-slot capacity + capacity-aware anti-double-book index ─────────
+        _run_sql(conn,
+            "ALTER TABLE doctors ADD COLUMN IF NOT EXISTS slot_capacity INTEGER NOT NULL DEFAULT 1",
+            "doctors.slot_capacity")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS slot_index INTEGER NOT NULL DEFAULT 0",
+            "appointments.slot_index")
+        _run_sql(conn,
+            "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS post_session_sent BOOLEAN NOT NULL DEFAULT FALSE",
+            "appointments.post_session_sent")
+        # Rebuild the partial unique index to include slot_index (idempotent —
+        # the pre-capacity data has at most one active row per slot, all index 0).
+        _run_sql(conn, "DROP INDEX IF EXISTS uq_active_appointment_slot",
+            "drop old slot index")
+        _run_sql(conn,
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_appointment_slot "
+            "ON appointments (tenant_id, doctor_id, slot_datetime, slot_index) "
+            "WHERE status IN ('pending', 'confirmed')",
+            "capacity-aware slot index")
+
+        # ── Post-treatment check-in settings (per clinic) ─────────────────────
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS post_session_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+            "tenants.post_session_enabled")
+        _run_sql(conn,
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS post_session_message TEXT",
+            "tenants.post_session_message")
         _run_sql(conn, """
             CREATE TABLE IF NOT EXISTS services (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

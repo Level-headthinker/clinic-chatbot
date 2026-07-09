@@ -21,3 +21,4 @@ from app.models.knowledge import KnowledgeEntry
 from app.models.subscription import Subscription
 from app.models.audit_log import AuditLog
 from app.models.interaction_event import InteractionEvent
+from app.models.slot_offer import SlotOffer

@@ -17,6 +17,7 @@ Previously this logic lived inline inside ``chat.py::send_message`` — so the w
 chat could book but WhatsApp could not. Extracting it here is what lets voice
 notes and WhatsApp text book through the exact same code path.
 """
+from collections import Counter
 from datetime import datetime, timedelta
 import re
 
@@ -44,6 +45,7 @@ from app.services.llm import (
 )
 from app.services.output_guard import run_output_guard
 from app.services.knowledge_retrieval import retrieve_knowledge, format_knowledge
+from app.services.slot_capacity import capacity_of, next_free_seat
 
 BOOKED_STATUSES = ["pending", "confirmed"]
 # Whole-word/phrase matching only. "book" is deliberately NOT here — it's a
@@ -127,7 +129,11 @@ def generate_doctor_slots(doctor, tenant_id, db, days_ahead=14, max_slots=3):
         Appointment.slot_datetime >= now,
         Appointment.slot_datetime < window_end,
     ).all()
-    booked_slots = {normalize_datetime(r[0]) for r in booked_rows if r[0]}
+    # Count occupancy per slot, not just presence — a slot is only "unavailable"
+    # once it hits the doctor's capacity. Full slots are skipped, so the first
+    # slot returned is naturally the NEXT OPENING (feature: offer next opening).
+    booked_counts = Counter(normalize_datetime(r[0]) for r in booked_rows if r[0])
+    cap = capacity_of(doctor)
     slots = []
     for timing in doctor.timings or []:
         weekday = WEEKDAY_BY_NAME.get(str(timing.get("day", "")).strip().lower())
@@ -142,7 +148,7 @@ def generate_doctor_slots(doctor, tenant_id, db, days_ahead=14, max_slots=3):
             slot = datetime.combine(day, start_time)
             end = datetime.combine(day, end_time)
             while slot < end:
-                if slot > now and slot not in booked_slots:
+                if slot > now and booked_counts.get(slot, 0) < cap:
                     slots.append(slot)
                 slot += timedelta(minutes=30)
     return sorted(slots)[:max_slots]
@@ -391,6 +397,66 @@ def tenant_notification_email(tenant_id, db):
     return admin.email if admin else ""
 
 
+def _handle_slot_offer_reply(db, tenant, session, message, user_confirmed, language, modality):
+    """If the patient has a pending 'move earlier?' offer, resolve their YES/NO.
+
+    Returns a reply string when the message clearly accepts/declines the offer
+    (short-circuiting the normal flow), or None to let normal handling continue.
+    """
+    from app.services.slot_backfill import (
+        pending_offer_for, accept_offer, decline_offer,
+    )
+    offer = pending_offer_for(db, tenant.id, session.patient_phone)
+    if not offer:
+        return None
+
+    roman = language in ("ur-roman", "roman", "ur")
+    declined = bool(_NEGATION_RE.search(message)) and not user_confirmed
+
+    if user_confirmed:
+        ok, result = accept_offer(db, offer)
+        if ok:
+            when = format_slot(result)
+            when = normalize_for_speech(when) if modality == "voice" else when
+            reply = (f"Ho gaya! Aapki appointment ab {when} par move kar di gayi hai."
+                     if roman else
+                     f"Done! Your appointment has been moved earlier to {when}.")
+        else:
+            reply = ("Maazrat, wo slot abhi kisi aur ne le liya. Aapki original appointment barqarar hai."
+                     if roman else
+                     "Sorry, that earlier slot was just taken. Your original appointment still stands.")
+        _record_backfill_turn(db, tenant, session, message, reply)
+        return reply
+
+    if declined:
+        decline_offer(db, offer)
+        reply = ("Koi baat nahi, aapki original appointment barqarar hai."
+                 if roman else
+                 "No problem — your original appointment stays as it is.")
+        _record_backfill_turn(db, tenant, session, message, reply)
+        return reply
+
+    return None  # ambiguous — let the normal brain handle it, offer stays pending
+
+
+def _record_backfill_turn(db, tenant, session, message, reply):
+    """Persist the turn + log the interaction for a short-circuited offer reply."""
+    messages = list(session.messages or [])
+    messages.append({"role": "user", "content": message})
+    messages.append({"role": "assistant", "content": reply})
+    session.messages = messages[-100:]
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    log_interaction(
+        db, tenant_id=tenant.id, branch_id=session.branch_id,
+        session_token=session.session_token, modality="text",
+        intent="slot_offer", language=session.language, outcome="answered",
+        has_contact=bool(session.patient_name and session.patient_phone),
+    )
+
+
 def try_save_appointment(session, tenant_id, branch_id, db, doctors, search_text):
     if not session.patient_name or not session.patient_phone:
         return None, None, None, "missing_patient"
@@ -406,6 +472,12 @@ def try_save_appointment(session, tenant_id, branch_id, db, doctors, search_text
         return None, None, None, "no_slots"
     doctor = options[0]["doctor"]
     slot = options[0]["slots"][0]
+    # Claim the next free seat in this slot (0-based). find_booking_options only
+    # returns slots with room, so this is normally available; if a concurrent
+    # booking just filled the last seat, the unique index catches it on commit.
+    seat = next_free_seat(db, doctor, tenant_id, slot)
+    if seat is None:
+        return None, None, None, "no_slots"
     # Create/update the patient record (returning-patient aware) and link the
     # appointment to it, so every booking lands in the Patients list and a repeat
     # patient's booking_count goes up instead of silently duplicating.
@@ -417,7 +489,8 @@ def try_save_appointment(session, tenant_id, branch_id, db, doctors, search_text
         patient_id=patient.id,
         patient_name=session.patient_name, patient_phone=session.patient_phone,
         alternate_phone=session.alternate_phone,
-        patient_concern=concern_from_session(session), slot_datetime=slot, status="pending"
+        patient_concern=concern_from_session(session), slot_datetime=slot,
+        slot_index=seat, status="pending",
     )
     db.add(appointment)
     return appointment, doctor, slot, None
@@ -536,6 +609,17 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
     language = detect_language(clean_message, fallback=session.language or "en")
     session.language = language
     session.current_intent = intent
+
+    # ── Slot-backfill reply: was this patient offered an earlier slot? ───────
+    # If a cancellation freed a slot and we messaged them "reply YES to move
+    # earlier", handle that YES/NO here BEFORE the normal booking flow (so "yes"
+    # isn't mistaken for a new-booking confirmation).
+    if session.patient_phone:
+        backfill_reply = _handle_slot_offer_reply(
+            db, tenant, session, clean_message, user_confirmed, language, modality
+        )
+        if backfill_reply is not None:
+            return backfill_reply, intent, language
 
     # ── Knowledge-base retrieval (lightweight RAG) ───────────
     kb_entries = retrieve_knowledge(db, tenant.id, clean_message, k=3)

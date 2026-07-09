@@ -2,7 +2,7 @@
 # it gets saved here.
 # The clinic admin sees all bookings in their dashboard from this table.
 
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Index, func
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Integer, Index, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -28,8 +28,15 @@ class Appointment(Base):
     patient_concern = Column(Text)
     slot_datetime = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(50), default="pending")
+    # 0-based seat within a slot (0..capacity-1). With per-doctor slot_capacity>1
+    # a slot can hold several bookings; this column is what makes the anti-double-
+    # book unique index capacity-aware AND still race-safe (see __table_args__).
+    slot_index = Column(Integer, default=0, nullable=False, server_default="0")
     notes = Column(Text)
     reminder_sent = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Set once the post-treatment check-in ("how's your skin? taking meds?") has
+    # been sent, so the daily job never messages the same completed visit twice.
+    post_session_sent = Column(Boolean, default=False, nullable=False, server_default="false")
     checked_in = Column(Boolean, default=False, nullable=False, server_default="false")
     checked_in_at = Column(DateTime(timezone=True), nullable=True)
     room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=True)
@@ -38,11 +45,18 @@ class Appointment(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
+        # Anti-double-book guard, now capacity-aware. Each active booking claims a
+        # distinct seat (slot_index 0..capacity-1) in a slot, so N patients can
+        # share a slot but no seat can be double-claimed — the unique index rejects
+        # the loser of a race even when two bookings target the same seat.
+        # With the default slot_capacity=1, slot_index is always 0 → identical to
+        # the original one-per-slot behaviour.
         Index(
             "uq_active_appointment_slot",
             "tenant_id",
             "doctor_id",
             "slot_datetime",
+            "slot_index",
             unique=True,
             postgresql_where=status.in_(["pending", "confirmed"]),
         ),

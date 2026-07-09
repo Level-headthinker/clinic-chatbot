@@ -11,6 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -142,14 +143,9 @@ def _slot_is_offered(doctor, slot: datetime, db, tenant_id) -> bool:
         return False
     if slot > now + timedelta(days=60):
         return False
-    booked = db.query(Appointment).filter(
-        Appointment.tenant_id == tenant_id,
-        Appointment.doctor_id == doctor.id,
-        Appointment.slot_datetime == slot,
-        Appointment.status.in_(BOOKED_STATUSES),
-    ).first()
-    if booked:
-        return False
+    from app.services.slot_capacity import slot_has_room
+    if not slot_has_room(db, doctor, tenant_id, slot):
+        return False  # slot at capacity
     for timing in doctor.timings or []:
         weekday = WEEKDAY_BY_NAME.get(str(timing.get("day", "")).strip().lower())
         start = _parse_time(timing.get("from"))
@@ -230,6 +226,13 @@ def create_booking(
             detail="That slot is not available. Please pick one of the offered slots.",
         )
 
+    from app.services.slot_capacity import next_free_seat
+    seat = next_free_seat(db, doctor, tenant.id, slot)
+    if seat is None:
+        raise HTTPException(
+            status_code=409,
+            detail="That slot just filled up. Please pick another slot.",
+        )
     appointment = Appointment(
         tenant_id=tenant.id,
         branch_id=branch.id,
@@ -238,6 +241,7 @@ def create_booking(
         patient_phone=data.patient_phone.strip(),
         patient_concern=data.patient_concern or "Self-booked",
         slot_datetime=slot,
+        slot_index=seat,
         status="pending",
     )
     db.add(appointment)
@@ -257,7 +261,15 @@ def create_booking(
             status="new",
         ))
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Lost the seat to a concurrent booker between the check and the commit.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="That slot just filled up. Please pick another slot.",
+        )
 
     doctor_name = doctor.name if doctor.name.lower().startswith("dr") else f"Dr. {doctor.name}"
     return {

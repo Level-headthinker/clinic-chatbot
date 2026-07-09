@@ -31,6 +31,11 @@ class Tenant(Base):
     # Set when the clinic finishes or dismisses the getting-started wizard, so it
     # stops showing. Step completion itself is derived live from the data.
     onboarding_dismissed = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Post-treatment check-in: when enabled, one day after an appointment is marked
+    # "completed" the bot messages the patient (recovery + medication adherence).
+    # The message is clinic-editable so a skin clinic and a dental clinic differ.
+    post_session_enabled = Column(Boolean, default=False, nullable=False, server_default="false")
+    post_session_message = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -50,6 +50,22 @@ def next_visit_message(patient_name, clinic_name, doctor_name, date_str, reason=
     return "\n".join(lines)
 
 
+def post_session_message(patient_name, clinic_name, custom=None) -> str:
+    """Post-treatment check-in. Uses the clinic's own wording when set (with
+    {name}/{clinic} placeholders), else a safe generic recovery + meds message."""
+    if custom and custom.strip():
+        return (custom.strip()
+                .replace("{name}", patient_name or "there")
+                .replace("{clinic}", clinic_name))
+    return (
+        f"Hi {patient_name}! 👋\n\n"
+        f"This is {clinic_name} checking in after your recent visit. How are you "
+        f"feeling? If you were prescribed any medication, we hope it's going well — "
+        f"please remember to take it as directed.\n\n"
+        f"Reply here if you have any questions or concerns. 🙂"
+    )
+
+
 def lead_nudge_message(name, clinic_name) -> str:
     return (
         f"Hi {name}! 👋\n\n"
@@ -231,17 +247,66 @@ def _lead_nudges(db, pnid_cache: dict) -> dict:
     return {"created": created, "sent": sent}
 
 
+def _post_session_checkins(db, pnid_cache: dict) -> dict:
+    """A day after a completed appointment, check in on the patient's recovery +
+    medication. Opt-in per clinic (tenant.post_session_enabled). De-dup via the
+    appointment's post_session_sent flag. No completed_at column exists, so a
+    completed appointment whose slot was ~1 day ago is the trigger (a 3-day lower
+    bound absorbs a missed run without re-messaging older visits)."""
+    now = datetime.now()
+    lower = now - timedelta(days=3)
+    upper = now - timedelta(hours=20)
+    appts = db.query(Appointment).filter(
+        Appointment.status == "completed",
+        Appointment.post_session_sent.is_(False),
+        Appointment.slot_datetime >= lower,
+        Appointment.slot_datetime <= upper,
+    ).all()
+
+    created = sent = 0
+    for appt in appts:
+        tenant = db.query(Tenant).filter(Tenant.id == appt.tenant_id).first()
+        if not tenant or not getattr(tenant, "post_session_enabled", False):
+            continue
+        # Mark handled up-front so a send failure never re-messages tomorrow.
+        appt.post_session_sent = True
+        if not appt.patient_phone:
+            db.commit()
+            continue
+        clinic = tenant.name
+        msg = post_session_message(appt.patient_name, clinic,
+                                   getattr(tenant, "post_session_message", None))
+        if appt.tenant_id not in pnid_cache:
+            pnid_cache[appt.tenant_id] = tenant_sender_pnid(db, appt.tenant_id)
+        delivered = _record_followup(
+            db, tenant_id=appt.tenant_id, branch_id=appt.branch_id, kind="post_session",
+            title=f"Post-visit check-in — {appt.patient_name}",
+            notes="Automatic post-treatment recovery + medication check-in.",
+            due_date=now, patient_id=appt.patient_id,
+            phone=appt.patient_phone, message=msg,
+            template_name=settings.WA_TEMPLATE_POST_SESSION,
+            template_params=[appt.patient_name, clinic],
+            from_pnid=pnid_cache[appt.tenant_id],
+        )
+        db.commit()
+        created += 1
+        sent += 1 if delivered else 0
+    return {"created": created, "sent": sent}
+
+
 def run_reminders(db) -> dict:
-    """Run both reminder passes. Safe to call repeatedly — de-dups itself."""
+    """Run all reminder passes. Safe to call repeatedly — de-dups itself."""
     if not settings.AUTO_REMINDERS_ENABLED:
         return {"enabled": False}
     pnid_cache: dict = {}  # tenant_id → the clinic's own sender number (one lookup per run)
     nv = _next_visit_reminders(db, pnid_cache)
     ln = _lead_nudges(db, pnid_cache)
+    ps = _post_session_checkins(db, pnid_cache)
     return {
         "enabled": True,
         "next_visit": nv,
         "lead_nudge": ln,
-        "created": nv["created"] + ln["created"],
-        "sent": nv["sent"] + ln["sent"],
+        "post_session": ps,
+        "created": nv["created"] + ln["created"] + ps["created"],
+        "sent": nv["sent"] + ln["sent"] + ps["sent"],
     }

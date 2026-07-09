@@ -1,6 +1,69 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.flagged_log import FlaggedLog
+from app.models.interaction_event import InteractionEvent
+
+
+def classify_outcome(*, booked: bool, lead_captured: bool,
+                     slots_offered: bool) -> str:
+    """Reduce a turn's results to one outcome label (most-converted wins).
+
+    Pure function so it's trivially testable and channel-agnostic:
+      booked > lead_captured > slots_offered > answered
+    """
+    if booked:
+        return "booked"
+    if lead_captured:
+        return "lead_captured"
+    if slots_offered:
+        return "slots_offered"
+    return "answered"
+
+
+def log_interaction(
+    db: Session,
+    *,
+    tenant_id,
+    branch_id=None,
+    session_token: Optional[str] = None,
+    modality: str = "text",
+    intent: Optional[str] = None,
+    language: Optional[str] = None,
+    outcome: str = "answered",
+    is_returning: bool = False,
+    visit_count: int = 0,
+    kb_hit: bool = False,
+    output_flagged: bool = False,
+    has_contact: bool = False,
+) -> None:
+    """Record one turn of the data feedback loop.
+
+    Best-effort: this must NEVER break a conversation. Stores derived signals
+    only — no message text or patient PII (see InteractionEvent docstring).
+    Commits standalone so the event survives even if the caller later rolls back.
+    """
+    try:
+        db.add(InteractionEvent(
+            tenant_id=tenant_id,
+            branch_id=branch_id,
+            session_token=session_token,
+            modality=modality or "text",
+            intent=intent,
+            language=language,
+            outcome=outcome,
+            is_returning=bool(is_returning),
+            visit_count=int(visit_count or 0),
+            kb_hit=bool(kb_hit),
+            output_flagged=bool(output_flagged),
+            has_contact=bool(has_contact),
+        ))
+        db.commit()
+    except Exception:
+        # Never let analytics logging break the chat.
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def log_input_flag(

@@ -28,7 +28,11 @@ from app.models.chat import Lead
 from app.models.doctor import Doctor
 from app.models.patient import Patient
 from app.models.user import User
-from app.services.conversation_logger import log_output_flag
+from app.services.conversation_logger import (
+    classify_outcome,
+    log_interaction,
+    log_output_flag,
+)
 from app.services.email import send_booking_notification, send_lead_notification
 from app.services.llm import (
     detect_language,
@@ -589,12 +593,14 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
     new_lead = try_save_lead(session, tenant.id, branch.id, db)
 
     spoken = modality == "voice"
+    slots_offered = False
     booking_text = build_booking_search_text(session, clean_message)
     if (intent == "book_appointment" and not user_confirmed
             and session.patient_name and session.patient_phone
             and not is_emergency(clean_message)):
         options = find_booking_options(doctors, tenant.id, db, booking_text)
         ai_reply = f"{ai_reply}\n\n{booking_suggestion_reply(options, language, spoken=spoken)}"
+        slots_offered = True
 
     appointment, doctor, slot = None, None, None
     if user_confirmed and intent == "book_appointment" and not is_emergency(clean_message):
@@ -626,6 +632,7 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
     session.messages = messages
 
     # Notifications fire only after a successful commit — never for unsaved records.
+    commit_ok = True
     try:
         db.commit()
         if new_lead or (appointment and doctor and slot):
@@ -651,6 +658,28 @@ def handle_turn(db, branch, tenant, session, clean_message, *, modality: str = "
                 )
     except IntegrityError:
         db.rollback()
+        commit_ok = False
         ai_reply = appointment_error_reply("active_appointment", language)
+
+    # ── Data feedback loop: one PHI-free event per turn (best-effort) ─────────
+    booked = commit_ok and bool(appointment and doctor and slot)
+    lead_captured = commit_ok and bool(new_lead)
+    log_interaction(
+        db,
+        tenant_id=tenant.id,
+        branch_id=branch.id,
+        session_token=session.session_token,
+        modality=modality,
+        intent=intent,
+        language=language,
+        outcome=classify_outcome(
+            booked=booked, lead_captured=lead_captured, slots_offered=slots_offered,
+        ),
+        is_returning=is_returning,
+        visit_count=visit_count,
+        kb_hit=bool(kb_entries),
+        output_flagged=bool(guarded_reply.was_modified),
+        has_contact=bool(session.patient_name and session.patient_phone),
+    )
 
     return ai_reply, intent, language

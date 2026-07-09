@@ -13,8 +13,24 @@ from app.models.invoice import Invoice
 from app.models.patient import Patient
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.services.interaction_analytics import summarize
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+
+@router.get("/feedback")
+def feedback_overview(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The data feedback loop, made visible: the bot's conversion funnel and its
+    weak spots (KB misses, output-guard interventions) for this clinic.
+
+    Always tenant-scoped. Reads the PHI-free InteractionEvent stream — no patient
+    data is exposed. Powers a "how is the AI actually doing?" dashboard card.
+    """
+    return summarize(db, current_user.tenant_id, days=days)
 
 
 def _branch_ids_for_user(user: User, db: Session) -> list:

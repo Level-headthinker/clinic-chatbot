@@ -16,6 +16,7 @@ const emptyForm = {
   bio: "",
   treatments: [],
   timings: [],
+  slot_capacity: 1,
 };
 
 export default function Doctors() {
@@ -75,6 +76,7 @@ export default function Doctors() {
     bio: form.bio,
     treatments: form.treatments,
     timings: form.timings,
+    slot_capacity: Number(form.slot_capacity) || 1,
     available_slots: [],
   });
 
@@ -117,6 +119,7 @@ export default function Doctors() {
       bio: doctor.bio || "",
       treatments: doctor.treatments || [],
       timings: doctor.timings || [],
+      slot_capacity: doctor.slot_capacity || 1,
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -177,6 +180,20 @@ export default function Doctors() {
               <input className="input" placeholder="Fee e.g. 1500 PKR" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} />
             </div>
             <textarea className="input textarea" placeholder="Short bio" value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
+
+            <div className="field">
+              <label>Patients per time-slot</label>
+              <input
+                className="input" type="number" min={1} max={50}
+                style={{ maxWidth: 140 }}
+                value={form.slot_capacity}
+                onChange={(e) => setForm({ ...form, slot_capacity: e.target.value })}
+              />
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 0" }}>
+                How many patients this doctor can see in the same slot. Leave at 1
+                for one-at-a-time; raise it to accept several bookings per slot.
+              </p>
+            </div>
 
             <div className="field">
               <label>Services this doctor can perform</label>

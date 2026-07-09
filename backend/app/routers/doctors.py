@@ -27,6 +27,7 @@ class DoctorCreate(BaseModel):
     available_slots: list = Field(default_factory=list)
     treatments: list = Field(default_factory=list)
     timings: list = Field(default_factory=list)
+    slot_capacity: int = Field(default=1, ge=1, le=50)
     branch_id: Optional[str] = None
 
 
@@ -39,6 +40,7 @@ class DoctorUpdate(BaseModel):
     available_slots: Optional[list] = None
     treatments: Optional[list] = None
     timings: Optional[list] = None
+    slot_capacity: Optional[int] = Field(default=None, ge=1, le=50)
     is_active: Optional[bool] = None
 
 
@@ -65,7 +67,8 @@ def add_doctor(
         fee=data.fee,
         available_slots=data.available_slots,
         treatments=data.treatments,
-        timings=data.timings
+        timings=data.timings,
+        slot_capacity=data.slot_capacity,
     )
     db.add(doctor)
     db.commit()
@@ -99,6 +102,7 @@ def list_doctors(
             "available_slots": d.available_slots,
             "treatments": d.treatments or [],
             "timings": d.timings or [],
+            "slot_capacity": d.slot_capacity or 1,
             "is_active": d.is_active,
             # FIX 4: Add tenant_id filter so counts are scoped to this clinic only.
             # Previously these counted records across ALL clinics.
@@ -140,6 +144,8 @@ def update_doctor(
         doctor.bio = data.bio
     if data.fee is not None:
         doctor.fee = data.fee
+    if data.slot_capacity is not None:
+        doctor.slot_capacity = data.slot_capacity
     if data.is_active is not None:
         doctor.is_active = data.is_active
 

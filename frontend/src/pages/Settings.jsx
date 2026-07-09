@@ -20,6 +20,8 @@ const defaultForm = {
   welcome_message: "",
   bot_tone: "warm",
   primary_color: "#0d9488",
+  post_session_enabled: false,
+  post_session_message: "",
   branch_bot_name: "",
   branch_welcome_message: "",
   branch_address: "",
@@ -155,6 +157,32 @@ export default function Settings() {
                 placeholder="#0d9488" style={{ flex: 1 }} maxLength={7} />
             </div>
             <p className="field-hint">Used for the chat widget button and accents.</p>
+          </div>
+        </div>
+
+        {/* Post-treatment check-in */}
+        <div className="panel">
+          <div className="panel-header" style={{ marginBottom: 16 }}>
+            <h3>Post-treatment check-in</h3>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={!!form.post_session_enabled}
+              onChange={(e) => setForm((f) => ({ ...f, post_session_enabled: e.target.checked }))}
+            />
+            <span>Automatically message patients a day after a completed appointment</span>
+          </label>
+          <div className="field" style={{ marginTop: 14 }}>
+            <label>Check-in message <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional — leave blank for a sensible default)</span></label>
+            <textarea
+              className="input" rows={3}
+              placeholder="Hi {name}! This is {clinic} checking in after your visit — how are you feeling? Are you taking your medication as prescribed?"
+              value={form.post_session_message || ""}
+              onChange={set("post_session_message")}
+              disabled={!form.post_session_enabled}
+            />
+            <p className="field-hint">Use {"{name}"} and {"{clinic}"} as placeholders. Sends via WhatsApp from your clinic number.</p>
           </div>
         </div>
 

@@ -21,6 +21,9 @@ class ClinicSettings(BaseModel):
     welcome_message: Optional[str] = None
     primary_color: Optional[str] = None
     bot_tone: Optional[str] = None
+    # Post-treatment check-in (auto message a day after a completed appointment)
+    post_session_enabled: Optional[bool] = None
+    post_session_message: Optional[str] = None
     # Branch-level overrides (for the user's main branch)
     branch_bot_name: Optional[str] = None
     branch_welcome_message: Optional[str] = None
@@ -55,6 +58,8 @@ def get_settings(
         "welcome_message": tenant.welcome_message,
         "primary_color": tenant.primary_color,
         "bot_tone": tenant.bot_tone or "warm",
+        "post_session_enabled": bool(getattr(tenant, "post_session_enabled", False)),
+        "post_session_message": getattr(tenant, "post_session_message", None),
         "branch_bot_name": branch.bot_name if branch else None,
         "branch_welcome_message": branch.welcome_message if branch else None,
         "branch_address": branch.address if branch else None,
@@ -91,6 +96,10 @@ def update_settings(
             if tone not in _ALLOWED_TONES:
                 raise HTTPException(status_code=400, detail=f"Tone must be one of {sorted(_ALLOWED_TONES)}")
             tenant.bot_tone = tone
+        if data.post_session_enabled is not None:
+            tenant.post_session_enabled = bool(data.post_session_enabled)
+        if data.post_session_message is not None:
+            tenant.post_session_message = data.post_session_message.strip() or None
 
     # Branch settings (all admins can update their own branch)
     if current_user.branch_id:

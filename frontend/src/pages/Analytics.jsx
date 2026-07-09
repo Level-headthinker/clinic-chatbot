@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import {
   Users, UserCheck, PhoneCall, RefreshCw, Calendar,
-  Wallet, AlertCircle,
+  Wallet, AlertCircle, Bot, Target, BookOpen, ShieldAlert,
 } from "lucide-react";
 import api from "../api/axios";
 import AppLayout from "../components/AppLayout";
@@ -68,6 +68,123 @@ function StatCard({ label, value, sub, icon: Icon, accent = "var(--primary)", ti
         <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{label}</p>
         {sub && <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{sub}</p>}
       </div>
+    </div>
+  );
+}
+
+const pct = (r) => `${Math.round((Number(r) || 0) * 100)}%`;
+
+const INTENT_LABEL = {
+  book_appointment: "Book appointment",
+  general: "General questions",
+  clinic_info: "Clinic info",
+  emergency: "Emergency",
+  reschedule: "Reschedule",
+  greeting: "Greeting",
+};
+
+// ── AI assistant performance: the data feedback loop, made visible ─────────────
+// Self-contained (own endpoint + own day window) so it never blocks the main
+// revenue analytics. Reads the PHI-free InteractionEvent stream.
+function BotPerformance() {
+  const [fb, setFb] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(30);
+  const { notify } = useToast();
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api.get("/analytics/feedback", { params: { days } })
+      .then((res) => { if (alive) setFb(res.data); })
+      .catch(() => { if (alive) notify("Failed to load AI performance.", "error"); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [days, notify]);
+
+  const topIntents = Object.entries(fb?.intents || {}).slice(0, 5);
+  const maxIntent = topIntents.reduce((m, [, n]) => Math.max(m, n), 0) || 1;
+
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        <Bot size={18} style={{ color: "var(--primary)" }} />
+        <h3 style={{ margin: 0 }}>AI assistant performance</h3>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>
+          How your WhatsApp bot is actually doing — from real conversations.
+        </span>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: "flex", gap: 6 }}>
+          {[7, 30, 90].map((d) => (
+            <button
+              key={d}
+              className={`btn ${days === d ? "btn-primary" : "btn-secondary"}`}
+              style={{ fontSize: 12, padding: "6px 11px" }}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && !fb ? (
+        <div className="panel" style={{ padding: 18 }}><p style={{ color: "var(--muted)", fontSize: 13 }}>Loading AI performance…</p></div>
+      ) : !fb || fb.total_turns === 0 ? (
+        <div className="panel" style={{ padding: 18 }}>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>
+            No conversations yet in this period. Once patients start chatting with the bot,
+            its conversion and quality metrics appear here.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14, marginBottom: 16 }}>
+            <StatCard
+              label="Booking conversion" value={pct(fb.conversion_rate)}
+              sub={`${fb.booked} booked of ${fb.booking_intent_turns} who tried`}
+              icon={Target} accent="#16a34a" tint="rgba(22,163,74,.12)"
+            />
+            <StatCard
+              label="Conversations" value={(fb.total_turns ?? 0).toLocaleString()}
+              sub={`${fb.leads_captured ?? 0} leads captured`}
+              icon={PhoneCall} accent="var(--primary)" tint="var(--primary-soft, rgba(13,148,136,.1))"
+            />
+            <StatCard
+              label="Knowledge gaps" value={pct(fb.kb_miss_rate)}
+              sub="Questions with no KB answer"
+              icon={BookOpen} accent="#f59e0b" tint="rgba(245,158,11,.12)"
+            />
+            <StatCard
+              label="Safety interventions" value={pct(fb.output_flag_rate)}
+              sub="Replies the guard corrected"
+              icon={ShieldAlert} accent="#8b5cf6" tint="rgba(139,92,246,.12)"
+            />
+          </div>
+
+          {topIntents.length > 0 && (
+            <div className="panel" style={{ padding: "18px 20px" }}>
+              <h3 style={{ marginBottom: 4, fontSize: 15 }}>What patients ask about</h3>
+              <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--muted)" }}>
+                Top intents across {fb.total_turns.toLocaleString()} conversations.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {topIntents.map(([intent, n]) => (
+                  <div key={intent} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 13, color: "var(--text)", width: 150, flexShrink: 0 }}>
+                      {INTENT_LABEL[intent] || intent.replace(/_/g, " ")}
+                    </span>
+                    <div style={{ flex: 1, background: "var(--line)", borderRadius: 6, height: 10, overflow: "hidden" }}>
+                      <div style={{ width: `${(n / maxIntent) * 100}%`, height: "100%", background: "var(--primary)", borderRadius: 6 }} />
+                    </div>
+                    <span style={{ fontSize: 13, color: "var(--muted)", width: 44, textAlign: "right" }}>{n}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -237,6 +354,9 @@ export default function Analytics() {
               icon={UserCheck} accent="#16a34a" tint="rgba(22,163,74,.12)"
             />
           </div>
+
+          {/* ── AI assistant performance (data feedback loop) ── */}
+          <BotPerformance />
 
           {/* ── Revenue per branch: collected vs billed ── */}
           <div className="panel" style={{ marginBottom: 18, padding: "20px 20px 10px" }}>
